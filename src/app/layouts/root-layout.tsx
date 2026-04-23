@@ -1,14 +1,14 @@
-import { Outlet, useLocation } from "react-router";
+import { useLocation, useOutlet } from "react-router";
 import { MatchProvider } from "../contexts/match-context";
 import { useActivityTracker } from "../hooks/useActivityTracker";
 import { AnimatePresence, motion, Variants } from "framer-motion";
-import { OfflineBanner } from "../components/offline-banner"; // <-- Added import
+import { OfflineBanner } from "../components/offline-banner";
 
 const bubbleVariants: Variants = {
   initial: { 
     opacity: 0, 
-    y: 200, 
-    scale: 0.5, 
+    y: 100,      // Reduced from 200 for a smoother, premium entry
+    scale: 0.9,  // Start slightly smaller instead of halving the size
   },
   animate: { 
     opacity: 1, 
@@ -23,11 +23,9 @@ const bubbleVariants: Variants = {
   },
   exit: { 
     opacity: 0, 
-    y: -100, 
-    scale: 1.1, 
     transition: { 
-      ease: "easeIn", 
-      duration: 0.2 
+      ease: "easeOut", 
+      duration: 0.15 
     } 
   }
 };
@@ -35,6 +33,10 @@ const bubbleVariants: Variants = {
 export default function RootLayout() {
   useActivityTracker();
   const location = useLocation();
+  
+  // MAGIC FIX: This hook creates a frozen snapshot of the current route's UI
+  // so Framer Motion can cleanly animate it away without it flashing to the new page!
+  const currentOutlet = useOutlet();
 
   return (
     <MatchProvider>
@@ -43,7 +45,7 @@ export default function RootLayout() {
         {/* Offline Banner sits at the absolute top, outside page transitions */}
         <OfflineBanner />
 
-        {/* mode="wait" is CRITICAL for Playwright tests to pass */}
+        {/* mode="wait" ensures the old page fades out completely before the new one bounces in */}
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
@@ -51,9 +53,10 @@ export default function RootLayout() {
             initial="initial"
             animate="animate"
             exit="exit"
-            className="flex-1 origin-bottom" // Changed to flex-1 to flow under the banner
+            className="flex-1 origin-bottom" 
           >
-            <Outlet />
+            {/* Replaced <Outlet /> with the frozen hook value */}
+            {currentOutlet}
           </motion.div>
         </AnimatePresence>
       </div>

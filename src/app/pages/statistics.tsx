@@ -1,9 +1,10 @@
 import { useNavigate } from "react-router";
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { TeamBalancerLogo } from "../components/team-balancer-logo";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { useMatches } from "../contexts/match-context";
 import { ArrowLeft, Trophy, Users, TrendingUp, Target, Calendar, Play, Square, Zap, PieChart as PieChartIcon, BarChart3 } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
@@ -19,65 +20,18 @@ const getPlayerTier = (gamesPlayed: number) => {
 
 export default function StatisticsPage() {
   const navigate = useNavigate();
-  const { matches, createMatch, deleteMatch } = useMatches(); 
+  const { matches, tournaments, activeTournamentId, setActiveTournamentId } = useMatches(); 
   
-  // Simulation State
   const [isSimulating, setIsSimulating] = useState(false);
-  const simulationInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // async data simulation effect
-  useEffect(() => {
-    if (isSimulating) {
-      simulationInterval.current = setInterval(() => {
-        const action = Math.random();
-        
-        if (action < 0.4 && matches.length > 3) {
-          const randomMatch = matches[Math.floor(Math.random() * matches.length)];
-          if (randomMatch) deleteMatch(randomMatch.id);
-        } else {
-          const baseSkill = Math.floor(Math.random() * 40) + 60;
-          const diff = Math.floor(Math.random() * 15);
-          const scoreA = Math.floor(Math.random() * 10) + 15;
-          const scoreB = Math.floor(Math.random() * 10) + 15;
-          
-          createMatch({
-            date: new Date().toISOString(),
-            tournamentId: "t_1",
-            scoreA,
-            scoreB,
-            winner: scoreA > scoreB ? "Team A" : "Team B",
-            teamA: {
-              name: "Team A",
-              totalSkill: baseSkill,
-              players: [{ id: `p${Date.now()}`, name: "Sim Player A", skillValue: baseSkill / 2, skillAdjustment: "0" }]
-            },
-            teamB: {
-              name: "Team B",
-              totalSkill: baseSkill - diff + Math.floor(Math.random() * (diff * 2)),
-              players: [{ id: `p${Date.now()+1}`, name: "Sim Player B", skillValue: baseSkill / 2, skillAdjustment: "0" }]
-            }
-          });
-        }
-      }, 1500);
-    } else {
-      if (simulationInterval.current) clearInterval(simulationInterval.current);
-    }
-
-    return () => {
-      if (simulationInterval.current) clearInterval(simulationInterval.current);
-    };
-  }, [isSimulating, matches, createMatch, deleteMatch]);
-
-  // Calculations
+  // --- CALCULATIONS ---
   const totalMatches = matches.length;
   const teamAWins = matches.filter(m => m.winner === "Team A").length;
   const teamBWins = matches.filter(m => m.winner === "Team B").length;
   
-  const avgScoreA = totalMatches ? Math.round(matches.reduce((sum, m) => sum + m.scoreA, 0) / totalMatches) : 0;
-  const avgScoreB = totalMatches ? Math.round(matches.reduce((sum, m) => sum + m.scoreB, 0) / totalMatches) : 0;
   const avgSkillDiff = totalMatches ? Math.round(matches.reduce((sum, m) => sum + Math.abs(m.teamA.totalSkill - m.teamB.totalSkill), 0) / totalMatches) : 0;
 
-  // Chart Data Preparation
+  // --- CHART DATA PREPARATION ---
   const recentMatches = matches.slice(-20);
 
   const winRateData = [
@@ -98,20 +52,24 @@ export default function StatisticsPage() {
 
   const playerParticipation = new Map<string, { games: number; wins: number; totalScore: number }>();
   matches.forEach(match => {
-    match.teamA.players.forEach(player => {
-      const current = playerParticipation.get(player.name) || { games: 0, wins: 0, totalScore: 0 };
-      current.games++;
-      if (match.winner === "Team A") current.wins++;
-      current.totalScore += match.scoreA;
-      playerParticipation.set(player.name, current);
-    });
-    match.teamB.players.forEach(player => {
-      const current = playerParticipation.get(player.name) || { games: 0, wins: 0, totalScore: 0 };
-      current.games++;
-      if (match.winner === "Team B") current.wins++;
-      current.totalScore += match.scoreB;
-      playerParticipation.set(player.name, current);
-    });
+    if (Array.isArray(match.teamA?.players)) {
+      match.teamA.players.forEach(player => {
+        const current = playerParticipation.get(player.name) || { games: 0, wins: 0, totalScore: 0 };
+        current.games++;
+        if (match.winner === "Team A") current.wins++;
+        current.totalScore += match.scoreA;
+        playerParticipation.set(player.name, current);
+      });
+    }
+    if (Array.isArray(match.teamB?.players)) {
+      match.teamB.players.forEach(player => {
+        const current = playerParticipation.get(player.name) || { games: 0, wins: 0, totalScore: 0 };
+        current.games++;
+        if (match.winner === "Team B") current.wins++;
+        current.totalScore += match.scoreB;
+        playerParticipation.set(player.name, current);
+      });
+    }
   });
 
   const allPlayers = Array.from(playerParticipation.entries())
@@ -124,37 +82,46 @@ export default function StatisticsPage() {
       tier: getPlayerTier(stats.games)
     }))
     .sort((a, b) => b.games - a.games);
+
+  // --- SERVER-SIDE SIMULATION TRIGGER ---
   const toggleSimulation = async () => {
-      try {
-        if (isSimulating) {
-          await fetch('http://localhost:3000/api/matches/simulate/stop', { method: 'POST' });
-          setIsSimulating(false);
-        } else {
-          await fetch('http://localhost:3000/api/matches/simulate/start', { method: 'POST' });
-          setIsSimulating(true);
-        }
-      } catch (error) {
-        console.error("Failed to toggle simulation:", error);
-      }
-    };
+    try {
+      const query = isSimulating 
+        ? `mutation { stopSimulation }`
+        : `mutation { startSimulation(tournamentId: "${activeTournamentId}") }`;
+        
+      await fetch("http://localhost:3000/graphql", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+      
+      setIsSimulating(!isSimulating);
+    } catch (error) {
+      console.error("Failed to toggle simulation:", error);
+    }
+  };
+
   const topPlayers = allPlayers.slice(0, 8).map(p => ({ name: p.name, games: p.games }));
 
   return (
     <div className="min-h-screen p-4 md:p-8 bg-background">
       <div className="max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
+        
+        {/* Header - Buttons moved to the right */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
           <div className="scale-75 sm:scale-100 origin-left">
             <TeamBalancerLogo iconSize={60} showTagline={false} layout="horizontal" />
           </div>
-          <div className="flex flex-wrap gap-3 w-full sm:w-auto">
+          <div className="flex flex-wrap gap-3 w-full sm:w-auto items-center">
             <Button
-              className={`w-full sm:w-auto ${isSimulating ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'} text-white shadow-lg transition-colors`}
+              className={`flex-1 sm:flex-none ${isSimulating ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'} text-white shadow-lg transition-colors`}
               onClick={toggleSimulation}
             >
               {isSimulating ? <Square className="mr-2 size-4 fill-current" /> : <Play className="mr-2 size-4 fill-current" />}
-              {isSimulating ? "Stop Server Sim" : "Start Server Sim"}
+              {isSimulating ? "Stop Sim" : "Start Sim"}
             </Button>
+            
             <Button
               className="flex-1 sm:flex-none bg-gradient-to-r from-[#006895] to-[#0799ba] hover:from-[#005177] hover:to-[#06859f] text-white shadow-lg"
               onClick={() => navigate("/synergy")}
@@ -162,6 +129,7 @@ export default function StatisticsPage() {
               <Zap className="mr-2 size-4" />
               Synergy Engine
             </Button>
+            
             <Button variant="outline" className="flex-1 sm:flex-none border-[#0799ba] text-[#0799ba]" onClick={() => navigate("/matches")}>
               <ArrowLeft className="mr-2 size-4" />
               Back
@@ -169,10 +137,27 @@ export default function StatisticsPage() {
           </div>
         </div>
 
-        {/* Title */}
-        <div className="mb-8">
-          <h2 className="text-2xl sm:text-3xl text-[#006895] font-bold mb-2">Live Match Statistics</h2>
-          <p className="text-muted-foreground text-sm sm:text-base">Parallel view of charts and tabular data updating in real-time.</p>
+        {/* Title & Dropdown (Below Header, Left Aligned) */}
+        <div className="mb-8 flex flex-col items-start gap-4">
+          <div>
+            <h2 className="text-2xl sm:text-3xl text-[#006895] font-bold mb-2">Live Match Statistics</h2>
+            <p className="text-muted-foreground text-sm sm:text-base">Parallel view of charts and tabular data updating in real-time.</p>
+          </div>
+          
+          <div className="w-full sm:w-[280px]">
+            <Select value={activeTournamentId} onValueChange={setActiveTournamentId}>
+              <SelectTrigger className="w-full bg-white border-[#8ec1b8] focus:ring-[#006895] shadow-sm">
+                <SelectValue placeholder="Select Tournament" />
+              </SelectTrigger>
+              <SelectContent>
+                {tournaments.map(t => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Key Metrics Cards */}

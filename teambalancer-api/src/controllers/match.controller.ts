@@ -5,7 +5,7 @@ import { faker } from '@faker-js/faker';
 import { WebSocketServer, WebSocket } from 'ws';
 
 let simulationInterval: NodeJS.Timeout | null = null;
-
+let currentSimulationTournament = "t_1";
 export const matchController = {
   // Get all with server-side pagination
   getMatches: (req: Request, res: Response) => {
@@ -106,6 +106,9 @@ createMatch: (req: Request, res: Response) => {
     if (simulationInterval) {
       return res.status(400).json({ message: "Simulation is already running" });
     }
+    if (req.query.tournamentId) {
+    currentSimulationTournament = req.query.tournamentId as string;
+  }
 
     const wss = req.app.get('wss') as WebSocketServer;
 
@@ -119,7 +122,7 @@ createMatch: (req: Request, res: Response) => {
 
       const fakeMatch: Match = {
         id: newId,
-      //  tournamentId: "t_1",
+        tournamentId: currentSimulationTournament,
         date: new Date().toISOString(),
         scoreA,
         scoreB,
