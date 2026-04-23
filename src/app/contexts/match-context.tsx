@@ -1,194 +1,164 @@
-// @refresh reset
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
-import { Match } from "../data/mock-data";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { Match, Tournament } from "../data/mock-data";
 
 interface MatchContextType {
   matches: Match[];
-  getMatchById: (id: string) => Match | undefined;
+  tournaments: Tournament[];
+  activeTournamentId: string;
+  setActiveTournamentId: (id: string) => void;
+  hasNextPage: boolean;
+  isLoadingMore: boolean;
+  isOffline: boolean;
+  loadMatches: (reset?: boolean) => Promise<void>;
   createMatch: (match: Omit<Match, "id">) => Promise<Match | undefined>;
   updateMatch: (id: string, match: Partial<Match>) => Promise<Match | undefined>;
   deleteMatch: (id: string) => Promise<void>;
-  isLoading: boolean;
-  isOffline: boolean; // Exposing this so you can show a "You are offline" banner in your UI
-}
-
-interface SyncAction {
-  id: string;
-  type: 'CREATE' | 'UPDATE' | 'DELETE';
-  payload?: any;
-  matchId?: string; // Target ID for update/delete
+  getMatchById: (id: string) => Match | undefined;
 }
 
 const MatchContext = createContext<MatchContextType | undefined>(undefined);
-const API_URL = "http://localhost:3000/api/matches";
+const GQL_URL = "http://localhost:3000/graphql";
+
+// Reusable fetcher for GraphQL queries and mutations
+const gqlFetch = async (query: string, variables = {}) => {
+  const res = await fetch(GQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables })
+  });
+  const json = await res.json();
+  if (json.errors) throw new Error(json.errors[0].message);
+  return json.data;
+};
 
 export function MatchProvider({ children }: { children: ReactNode }) {
   const [matches, setMatches] = useState<Match[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [activeTournamentId, setActiveTournamentId] = useState("t_1");
+  const [hasNextPage, setHasNextPage] = useState(true);
+  const [endCursor, setEndCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
-  // --- 1. LOCAL MEMORY HELPERS ---
-  const saveLocalCache = (data: Match[]) => localStorage.setItem('matchesCache', JSON.stringify(data));
-  
-  const getSyncQueue = (): SyncAction[] => JSON.parse(localStorage.getItem('syncQueue') || '[]');
-  
-  const addToSyncQueue = (action: Omit<SyncAction, 'id'>) => {
-    const queue = getSyncQueue();
-    queue.push({ ...action, id: Date.now().toString() });
-    localStorage.setItem('syncQueue', JSON.stringify(queue));
-  };
-
-  // --- 2. SYNCHRONIZATION ENGINE ---
-  const syncWithServer = useCallback(async () => {
-    const queue = getSyncQueue();
-    if (queue.length === 0) return;
-
-    console.log(`Syncing ${queue.length} background operations to server...`);
-    
-    // Process queue sequentially to preserve the order of operations
-    for (const action of queue) {
+  // Fetch Tournaments on initial load so the Dropdown is populated
+  useEffect(() => {
+    const fetchTournaments = async () => {
       try {
-        if (action.type === 'CREATE') {
-          await fetch(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action.payload) });
-        } else if (action.type === 'UPDATE') {
-          await fetch(`${API_URL}/${action.matchId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action.payload) });
-        } else if (action.type === 'DELETE') {
-          await fetch(`${API_URL}/${action.matchId}`, { method: "DELETE" });
-        }
+        const data = await gqlFetch(`query { tournaments { id name status } }`);
+        setTournaments(data.tournaments);
       } catch (err) {
-        console.error("Failed to sync action, stopping queue processing:", err);
-        return; // Stop processing if server goes down mid-sync
+        console.error("Failed to load tournaments:", err);
       }
-    }
-
-    // If we get here, all syncs succeeded! Clear the queue.
-    localStorage.removeItem('syncQueue');
-    fetchMatches(); // Pull the authoritative true state from the server
+    };
+    fetchTournaments();
   }, []);
 
-  // --- 3. FETCH AND NETWORK DETECTION ---
-  const fetchMatches = async () => {
-    try {
-      const response = await fetch(`${API_URL}?limit=1000`);
-      if (!response.ok) throw new Error("Server rejected request");
-      
-      const result = await response.json();
-      setMatches(result.data);
-      saveLocalCache(result.data);
-      
-      if (isOffline) {
-        setIsOffline(false);
-        syncWithServer(); // We are back online, trigger sync!
+  // Reload Matches whenever the Active Tournament Dropdown changes
+  useEffect(() => {
+    loadMatches(true);
+  }, [activeTournamentId]);
+
+  const loadMatches = async (reset = false) => {
+    if (isLoadingMore || (!hasNextPage && !reset)) return;
+    setIsLoadingMore(true);
+
+    const query = `
+      query GetMatches($tournamentId: ID, $cursor: String, $limit: Int) {
+        matches(tournamentId: $tournamentId, cursor: $cursor, limit: $limit) {
+          edges { 
+            id tournamentId date scoreA scoreB winner 
+            teamA { name totalSkill players { id name skillValue skillAdjustment } } 
+            teamB { name totalSkill players { id name skillValue skillAdjustment } } 
+          }
+          pageInfo { hasNextPage endCursor }
+        }
       }
-    } catch (error) {
-      console.warn("Offline Mode Active: Serving from local cache.");
+    `;
+
+    try {
+      const data = await gqlFetch(query, { 
+        tournamentId: activeTournamentId, 
+        cursor: reset ? null : endCursor, 
+        limit: 10 
+      });
+
+      setMatches(prev => reset ? data.matches.edges : [...prev, ...data.matches.edges]);
+      setHasNextPage(data.matches.pageInfo.hasNextPage);
+      setEndCursor(data.matches.pageInfo.endCursor);
+      setIsOffline(false);
+    } catch (err) {
+      console.error(err);
       setIsOffline(true);
-      // Fallback to local memory if the server is unreachable
-      const cached = localStorage.getItem('matchesCache');
-      if (cached) setMatches(JSON.parse(cached));
     } finally {
-      setIsLoading(false);
+      setIsLoadingMore(false);
     }
   };
 
-  // Listen to browser network events
- useEffect(() => {
-    const handleOnline = () => { setIsOffline(false); fetchMatches(); syncWithServer(); };
-    const handleOffline = () => setIsOffline(true);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    
-    fetchMatches(); 
-
-    // --- Establish WebSocket Connection ---
-    const ws = new WebSocket("ws://localhost:3000");
-    
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        // If the server broadcasts a new match, inject it directly into React State!
-        if (data.type === 'NEW_MATCH') {
-          setMatches(prev => {
-            const updated = [data.payload, ...prev];
-            saveLocalCache(updated); // Update offline cache too
-            return updated;
-          });
-        }
-      } catch (err) {
-        console.error("Failed to parse WebSocket message", err);
-      }
-    };
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      ws.close(); // Clean up socket when context unmounts
-    };
-  }, [syncWithServer]);
-
-
-  // --- 4. CRUD OPERATIONS (Optimistic + Queued) ---
   const getMatchById = (id: string) => matches.find(m => m.id === id);
 
-  const createMatch = async (matchData: Omit<Match, "id">) => {
-    // Optimistic UI Update (generate a temporary ID)
-    const tempMatch: Match = { id: `temp_${Date.now()}`, ...matchData as any };
-    const updatedMatches = [tempMatch, ...matches];
-    setMatches(updatedMatches);
-    saveLocalCache(updatedMatches);
-
+  const createMatch = async (matchData: any) => {
+    const payload = { ...matchData, tournamentId: matchData.tournamentId || activeTournamentId };
+    
+    const mutation = `
+      mutation CreateMatch($input: MatchInput!) {
+        createMatch(input: $input) {
+          id tournamentId date scoreA scoreB winner
+          teamA { name totalSkill players { id name skillValue skillAdjustment } }
+          teamB { name totalSkill players { id name skillValue skillAdjustment } }
+        }
+      }
+    `;
     try {
-      if (isOffline) throw new Error("Offline");
-      const response = await fetch(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(matchData) });
-      if (!response.ok) throw new Error("Server error");
-      
-      const newMatch = await response.json();
-      // Replace temp match with real server match
-      setMatches(prev => prev.map(m => m.id === tempMatch.id ? newMatch : m));
-      return newMatch;
+      const data = await gqlFetch(mutation, { input: payload });
+      if (payload.tournamentId === activeTournamentId) {
+        setMatches(prev => [data.createMatch, ...prev]);
+      }
+      return data.createMatch;
     } catch (error) {
-      setIsOffline(true);
-      addToSyncQueue({ type: 'CREATE', payload: matchData });
-      return tempMatch;
+      console.error("GraphQL Create Error:", error);
     }
   };
 
-  const updateMatch = async (id: string, matchData: Partial<Match>) => {
-    // Optimistic Update
-    const updatedMatches = matches.map(m => m.id === id ? { ...m, ...matchData } as Match : m);
-    setMatches(updatedMatches);
-    saveLocalCache(updatedMatches);
-
+  const updateMatch = async (id: string, matchData: any) => {
+    const payload = { ...matchData, tournamentId: matchData.tournamentId || activeTournamentId };
+    const mutation = `
+      mutation UpdateMatch($id: ID!, $input: MatchInput!) {
+        updateMatch(id: $id, input: $input) {
+          id tournamentId date scoreA scoreB winner
+          teamA { name totalSkill players { id name skillValue skillAdjustment } }
+          teamB { name totalSkill players { id name skillValue skillAdjustment } }
+        }
+      }
+    `;
     try {
-      if (isOffline) throw new Error("Offline");
-      const response = await fetch(`${API_URL}/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(matchData) });
-      if (!response.ok) throw new Error("Server error");
-      return await response.json();
+      const data = await gqlFetch(mutation, { id, input: payload });
+      setMatches(prev => prev.map(m => m.id === id ? data.updateMatch : m));
+      return data.updateMatch;
     } catch (error) {
-      setIsOffline(true);
-      addToSyncQueue({ type: 'UPDATE', matchId: id, payload: matchData });
+      console.error("GraphQL Update Error:", error);
     }
   };
 
   const deleteMatch = async (id: string) => {
-    // Optimistic Update
-    const updatedMatches = matches.filter(m => m.id !== id);
-    setMatches(updatedMatches);
-    saveLocalCache(updatedMatches);
-
+    const mutation = `
+      mutation DeleteMatch($id: ID!) {
+        deleteMatch(id: $id)
+      }
+    `;
     try {
-      if (isOffline) throw new Error("Offline");
-      const response = await fetch(`${API_URL}/${id}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Server error");
+      await gqlFetch(mutation, { id });
+      setMatches(prev => prev.filter(m => m.id !== id));
     } catch (error) {
-      setIsOffline(true);
-      addToSyncQueue({ type: 'DELETE', matchId: id });
+      console.error("GraphQL Delete Error:", error);
     }
   };
 
   return (
-    <MatchContext.Provider value={{ matches, getMatchById, createMatch, updateMatch, deleteMatch, isLoading, isOffline }}>
+    <MatchContext.Provider value={{ 
+      matches, tournaments, activeTournamentId, setActiveTournamentId, 
+      hasNextPage, isLoadingMore, isOffline, 
+      loadMatches, createMatch, updateMatch, deleteMatch, getMatchById 
+    }}>
       {children}
     </MatchContext.Provider>
   );

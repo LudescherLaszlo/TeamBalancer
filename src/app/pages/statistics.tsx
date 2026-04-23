@@ -42,6 +42,7 @@ export default function StatisticsPage() {
           
           createMatch({
             date: new Date().toISOString(),
+            tournamentId: "t_1",
             scoreA,
             scoreB,
             winner: scoreA > scoreB ? "Team A" : "Team B",

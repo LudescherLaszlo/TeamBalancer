@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { ApolloServer } from '@apollo/server';
-import { expressMiddleware } from '@apollo/server/express4';
+import { expressMiddleware } from '@as-integrations/express5';
 import { typeDefs, resolvers } from './graphql/schema';
 
 const app = express();
@@ -28,7 +28,7 @@ async function startServer() {
   /* istanbul ignore next */
   if (require.main === module) {
     app.listen(PORT, () => {
-      console.log(`🚀 GraphQL Server ready at http://localhost:${PORT}/graphql`);
+      console.log(`GraphQL Server ready at http://localhost:${PORT}/graphql`);
     });
   }
 }

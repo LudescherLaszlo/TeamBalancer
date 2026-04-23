@@ -10,7 +10,8 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Match } from "../data/mock-data";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Match, Tournament } from "../data/mock-data"; // <-- Imported Tournament
 
 interface MatchFormDialogProps {
   open: boolean;
@@ -18,6 +19,8 @@ interface MatchFormDialogProps {
   onSave: (matchData: Omit<Match, "id"> | Match) => void;
   match?: Match;
   mode: "create" | "edit";
+  tournaments?: Tournament[];       // <-- Added!
+  activeTournamentId?: string;      // <-- Added!
 }
 
 export function MatchFormDialog({
@@ -26,8 +29,11 @@ export function MatchFormDialog({
   onSave,
   match,
   mode,
+  tournaments = [],                 // <-- Added with default
+  activeTournamentId = "t_1",       // <-- Added with default
 }: MatchFormDialogProps) {
   const [formData, setFormData] = useState({
+    tournamentId: activeTournamentId, // Initialize with the passed ID
     date: new Date().toISOString().split("T")[0],
     teamAPlayers: ["", "", "", ""],
     teamBPlayers: ["", "", "", ""],
@@ -39,16 +45,18 @@ export function MatchFormDialog({
   useEffect(() => {
     if (match && mode === "edit") {
       setFormData({
+        tournamentId: match.tournamentId || activeTournamentId,
         date: match.date,
         teamAPlayers: match.teamA.players.map(p => p.name),
         teamBPlayers: match.teamB.players.map(p => p.name),
         scoreA: match.scoreA,
         scoreB: match.scoreB,
-        winner: match.winner,
+        winner: match.winner as "Team A" | "Team B",
       });
     } else {
       // Reset form for create mode
       setFormData({
+        tournamentId: activeTournamentId, // Use the active one from Master Page
         date: new Date().toISOString().split("T")[0],
         teamAPlayers: ["", "", "", ""],
         teamBPlayers: ["", "", "", ""],
@@ -57,19 +65,18 @@ export function MatchFormDialog({
         winner: "Team A",
       });
     }
-  }, [match, mode, open]);
+  }, [match, mode, open, activeTournamentId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Generate player objects with skill values
     const createPlayers = (names: string[], startId: number) => {
       return names
         .filter(name => name.trim() !== "")
         .map((name, index) => ({
           id: `p${startId + index}`,
           name: name.trim(),
-          skillValue: Math.floor(Math.random() * 15) + 75, // Random skill 75-90
+          skillValue: Math.floor(Math.random() * 15) + 75,
           skillAdjustment: `+${Math.floor(Math.random() * 3) + 1}`,
         }));
     };
@@ -82,6 +89,7 @@ export function MatchFormDialog({
 
     const matchData = {
       ...(mode === "edit" && match ? { id: match.id } : {}),
+      tournamentId: formData.tournamentId, // Include chosen tournament!
       date: formData.date,
       teamA: {
         name: "Team A",
@@ -130,11 +138,32 @@ export function MatchFormDialog({
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-6 py-4">
+            
+            {/* TOURNAMENT SELECTOR (New Feature!) */}
+            {mode === "create" && tournaments && tournaments.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-[#006895]">Assign to Tournament</Label>
+                <Select 
+                  value={formData.tournamentId} 
+                  onValueChange={(val) => setFormData({ ...formData, tournamentId: val })}
+                >
+                  <SelectTrigger className="border-[#8ec1b8] focus:border-[#006895]">
+                    <SelectValue placeholder="Select Tournament" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tournaments.map(t => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* Date */}
             <div className="space-y-2">
-              <Label htmlFor="date" className="text-[#006895]">
-                Match Date
-              </Label>
+              <Label htmlFor="date" className="text-[#006895]">Match Date</Label>
               <Input
                 id="date"
                 type="date"
@@ -190,9 +219,7 @@ export function MatchFormDialog({
             {/* Scores */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="scoreA" className="text-[#006895]">
-                  Team A Score
-                </Label>
+                <Label htmlFor="scoreA" className="text-[#006895]">Team A Score</Label>
                 <Input
                   id="scoreA"
                   type="number"
@@ -213,9 +240,7 @@ export function MatchFormDialog({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="scoreB" className="text-[#0799ba]">
-                  Team B Score
-                </Label>
+                <Label htmlFor="scoreB" className="text-[#0799ba]">Team B Score</Label>
                 <Input
                   id="scoreB"
                   type="number"

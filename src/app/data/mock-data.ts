@@ -13,6 +13,7 @@ export interface Team {
 
 export interface Match {
   id: string;
+  tournamentId: string;
   date: string;
   teamA: Team;
   teamB: Team;
@@ -21,9 +22,21 @@ export interface Match {
   winner: "Team A" | "Team B";
 }
 
+export interface Tournament {
+  id: string;
+  name: string;
+  status: "Active" | "Completed";
+}
+
+export const tournaments: Tournament[] = [
+  { id: "t_1", name: "Summer Beach Volley 2026", status: "Completed" },
+  { id: "t_2", name: "Winter Indoor Tournament 2026", status: "Active" }
+];
+
 export const mockMatches: Match[] = [
   {
     id: "1",
+    tournamentId: "t_1",
     date: "2026-03-10",
     teamA: {
       name: "Team A",
@@ -91,6 +104,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "2",
+    tournamentId: "t_1",
     date: "2026-03-08",
     teamA: {
       name: "Team A",
@@ -158,6 +172,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "3",
+    tournamentId: "t_1",
     date: "2026-03-05",
     teamA: {
       name: "Team A",
@@ -225,6 +240,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "4",
+    tournamentId: "t_1",
     date: "2026-03-03",
     teamA: {
       name: "Team A",
@@ -292,6 +308,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "5",
+    tournamentId: "t_1",
     date: "2026-03-01",
     teamA: {
       name: "Team A",
@@ -359,6 +376,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "6",
+    tournamentId: "t_1",
     date: "2026-02-28",
     teamA: {
       name: "Team A",
@@ -426,6 +444,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "7",
+    tournamentId: "t_1",
     date: "2026-02-26",
     teamA: {
       name: "Team A",
@@ -493,6 +512,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "8",
+    tournamentId: "t_1",
     date: "2026-02-24",
     teamA: {
       name: "Team A",
@@ -560,6 +580,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "9",
+    tournamentId: "t_2",
     date: "2026-02-21",
     teamA: {
       name: "Team A",
@@ -627,6 +648,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "10",
+    tournamentId: "t_2",
     date: "2026-02-18",
     teamA: {
       name: "Team A",
@@ -694,6 +716,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "11",
+    tournamentId: "t_2",
     date: "2026-02-15",
     teamA: {
       name: "Team A",
@@ -761,6 +784,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "12",
+    tournamentId: "t_2",
     date: "2026-02-12",
     teamA: {
       name: "Team A",
@@ -828,6 +852,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "13",
+    tournamentId: "t_2",
     date: "2026-02-10",
     teamA: {
       name: "Team A",
@@ -895,6 +920,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "14",
+    tournamentId: "t_2",
     date: "2026-02-08",
     teamA: {
       name: "Team A",
@@ -962,6 +988,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "15",
+    tournamentId: "t_2",
     date: "2026-02-05",
     teamA: {
       name: "Team A",

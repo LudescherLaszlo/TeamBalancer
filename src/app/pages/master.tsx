@@ -2,16 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence, Variants } from "framer-motion";
 import { Edit2, Trash2, Plus, Home, BarChart3, Swords } from "lucide-react";
-
 import { TeamBalancerLogo } from "../components/team-balancer-logo";
 import { Button } from "../components/ui/button";
 import { Table, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { MatchFormDialog } from "../components/match-form-dialog";
 import { DeleteMatchDialog } from "../components/delete-match-dialog";
 
-// IMPORT FROM THE NEW GRAPHQL CONTEXT
-import { useMatches } from "../contexts/graphql-context";
+import { useMatches } from "../contexts/match-context";
 import { Match } from "../data/mock-data";
 
 const tableContainer: Variants = {
@@ -30,15 +29,14 @@ const tableRowVariants: Variants = {
 export default function MasterPage() {
   const navigate = useNavigate();
   
-  // Destructure the new Infinite Scroll variables alongside the CRUD functions
-  const { matches, loadMatches, hasNextPage, isLoadingMore, createMatch, updateMatch, deleteMatch } = useMatches();
+  // Destructured tournaments, activeTournamentId, and setActiveTournamentId for the filter
+  const { matches, tournaments, activeTournamentId, setActiveTournamentId, loadMatches, hasNextPage, isLoadingMore, createMatch, updateMatch, deleteMatch } = useMatches();
   
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | undefined>(undefined);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
 
-  // The invisible div we watch for infinite scrolling
   const observerTarget = useRef<HTMLDivElement>(null);
 
   // --- INFINITE SCROLL OBSERVER ---
@@ -94,6 +92,7 @@ export default function MasterPage() {
 
   const handleSaveMatch = (matchData: any) => {
     if (formMode === "create") {
+      // The context will automatically attach the activeTournamentId to this payload!
       createMatch(matchData);
     } else if (selectedMatch) {
       updateMatch(selectedMatch.id, matchData);
@@ -149,7 +148,7 @@ export default function MasterPage() {
           className="mb-8"
         >
           <p className="text-lg text-muted-foreground">
-            Tournament Matches (Infinite Scroll)
+            Tournament Matches
           </p>
         </motion.div>
 
@@ -166,15 +165,31 @@ export default function MasterPage() {
                   Season Results
                 </CardTitle>
                 
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Button
-                    className="bg-[#006895] hover:bg-[#005177] text-white transition-all duration-300 w-full sm:w-auto"
-                    onClick={handleAddMatch}
-                  >
-                    <Plus className="mr-2 size-4" />
-                    Add Match
-                  </Button>
-                </motion.div>
+                {/* NEW FILTER DROPDOWN & ADD BUTTON */}
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <Select value={activeTournamentId} onValueChange={setActiveTournamentId}>
+                    <SelectTrigger className="w-full sm:w-[220px] bg-background border-border">
+                      <SelectValue placeholder="Select Tournament" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tournaments.map(t => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                    <Button
+                      className="bg-[#006895] hover:bg-[#005177] text-white transition-all duration-300 w-full sm:w-auto"
+                      onClick={handleAddMatch}
+                    >
+                      <Plus className="mr-2 size-4" />
+                      Add Match
+                    </Button>
+                  </motion.div>
+                </div>
               </div>
             </CardHeader>
 
@@ -209,7 +224,9 @@ export default function MasterPage() {
                             key={match.id}
                             variants={tableRowVariants}
                             exit={{ opacity: 0, x: 20 }}
-                            className="hover:bg-[#0799ba]/5 border-b transition-colors duration-200"
+                            // ADDED CLICK TO NAVIGATE TO DETAIL PAGE
+                            onClick={() => navigate(`/matches/${match.id}`)}
+                            className="hover:bg-[#0799ba]/5 border-b transition-colors duration-200 cursor-pointer"
                             style={{
                               backgroundColor: index % 2 === 0 ? "transparent" : "rgba(142, 193, 184, 0.03)"
                             }}
@@ -243,7 +260,7 @@ export default function MasterPage() {
                                   size="sm"
                                   className="text-[#0799ba] hover:text-[#006895] hover:bg-[#0799ba]/10"
                                   onClick={(e) => {
-                                    e.stopPropagation();
+                                    e.stopPropagation(); // Prevents row click when clicking Edit
                                     handleEdit(match.id);
                                   }}
                                 >
@@ -254,7 +271,7 @@ export default function MasterPage() {
                                   size="sm"
                                   className="text-destructive hover:bg-destructive/10"
                                   onClick={(e) => {
-                                    e.stopPropagation();
+                                    e.stopPropagation(); // Prevents row click when clicking Delete
                                     handleDelete(match.id);
                                   }}
                                 >
@@ -302,12 +319,15 @@ export default function MasterPage() {
         </motion.div>
 
         {/* CRUD Dialogs */}
+        {/* We pass the active tournaments down to the dialog in case you want to show them inside the form! */}
         <MatchFormDialog
           open={formDialogOpen}
           onOpenChange={setFormDialogOpen}
           match={selectedMatch}
           mode={formMode}
           onSave={handleSaveMatch}
+          tournaments={tournaments} 
+          activeTournamentId={activeTournamentId}
         />
 
         <DeleteMatchDialog

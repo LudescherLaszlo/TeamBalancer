@@ -119,6 +119,7 @@ createMatch: (req: Request, res: Response) => {
 
       const fakeMatch: Match = {
         id: newId,
+      //  tournamentId: "t_1",
         date: new Date().toISOString(),
         scoreA,
         scoreB,
