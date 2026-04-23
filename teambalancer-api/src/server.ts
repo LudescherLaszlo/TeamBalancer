@@ -1,36 +1,41 @@
 import express from 'express';
 import cors from 'cors';
-import http from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
-import matchRoutes from './routes/match.routes';
+import { ApolloServer } from '@apollo/server';
+import { expressMiddleware } from '@apollo/server/express4';
+import { typeDefs, resolvers } from './graphql/schema';
 
 const app = express();
-const server = http.createServer(app);
-
-// Initialize the WebSocket server instance attached to our HTTP server
-const wss = new WebSocketServer({ server });
-
-app.use(cors());
-app.use(express.json());
-
-// Make the WebSocket server accessible to our controllers
-app.set('wss', wss);
-
-app.use('/api/matches', matchRoutes);
-
-// Log when React connects to the socket
-wss.on('connection', (ws: WebSocket) => {
-  console.log('Client connected to WebSocket channel');
-  ws.on('close', () => console.log('Client disconnected from WebSocket channel'));
-});
-
 const PORT = process.env.PORT || 3000;
 
-/* ignore next */
-if (require.main === module) {
-  server.listen(PORT, () => {
-    console.log(`Server & WebSocket running in RAM-only mode on http://localhost:${PORT}`);
-  });
+// Initialize Apollo Server
+const apolloServer = new ApolloServer({
+  typeDefs,
+  resolvers,
+});
+
+async function startServer() {
+  // Start the Apollo Server instance
+  await apolloServer.start();
+
+  // Standard middleware
+  app.use(cors());
+  app.use(express.json());
+
+  // Mount Apollo middleware at the /graphql endpoint
+  app.use('/graphql', expressMiddleware(apolloServer));
+
+  // Only listen if this file is run directly (keeps Jest tests from hanging)
+  /* istanbul ignore next */
+  if (require.main === module) {
+    app.listen(PORT, () => {
+      console.log(`🚀 GraphQL Server ready at http://localhost:${PORT}/graphql`);
+    });
+  }
 }
 
-export default server;
+startServer().catch((error) => {
+  console.error("Failed to start server:", error);
+});
+
+// Export the app for testing purposes
+export { app };
