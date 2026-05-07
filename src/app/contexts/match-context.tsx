@@ -23,8 +23,10 @@ interface SyncAction {
   matchId?: string;
 }
 
+const IP = import.meta.env.VITE_SERVER_IP;
+const GQL_URL = `http://${IP}:3000/graphql`;
 const MatchContext = createContext<MatchContextType | undefined>(undefined);
-const GQL_URL = "http://192.168.1.50:3000/graphql";
+
 
 // --- BULLETPROOF FETCHER ---
 // We now parse the JSON *before* checking !res.ok, because Apollo Server 
@@ -83,7 +85,7 @@ const sanitizeForGraphQL = (payload: any) => {
 export function MatchProvider({ children }: { children: ReactNode }) {
   const [matches, setMatches] = useState<Match[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [activeTournamentId, setActiveTournamentId] = useState("t_1");
+  const [activeTournamentId, setActiveTournamentId] = useState("");
   const [hasNextPage, setHasNextPage] = useState(true);
   const [endCursor, setEndCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -149,6 +151,12 @@ export function MatchProvider({ children }: { children: ReactNode }) {
       try {
         const data = await gqlFetch(`query { tournaments { id name status } }`);
         setTournaments(data.tournaments);
+        
+        // 🚨 ADD THIS: Auto-select the first real tournament from the DB!
+        if (data.tournaments && data.tournaments.length > 0) {
+          setActiveTournamentId(data.tournaments[0].id);
+        }
+        
       } catch (err) { console.error("Offline: Cannot fetch tournaments"); }
     };
     fetchTournaments();
@@ -163,7 +171,7 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     
     loadMatches(true);
 
-    const ws = new WebSocket("ws://localhost:3000");
+    const ws = new WebSocket(`ws://${IP}:3000`);
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);

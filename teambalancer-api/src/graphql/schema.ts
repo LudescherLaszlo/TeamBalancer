@@ -100,6 +100,7 @@ export const resolvers = {
   },
   
   Tournament: {
+    status: (parent: any) => parent.status || "Active",
     matches: async (parent: any) => {
       return await prisma.match.findMany({ 
         where: { tournamentId: parent.id },
