@@ -1,0 +1,54 @@
+// This block tells Prisma to generate a TypeScript client
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Change the provider to "postgresql" if you set up a Postgres database!
+datasource db {
+  provider = "sqlite" 
+  url      = env("DATABASE_URL")
+}
+
+model Tournament {
+  id      String  @id @default(uuid())
+  name    String
+  matches Match[]
+}
+
+model Team {
+  id          String   @id @default(uuid())
+  name        String
+  totalSkill  Int
+  players     Player[]
+  
+  // Relations to the Match table
+  matchesAsA  Match[]  @relation("TeamA")
+  matchesAsB  Match[]  @relation("TeamB")
+}
+
+model Player {
+  id              String @id @default(uuid())
+  name            String
+  skillValue      Int
+  skillAdjustment String
+  teamId          String
+  team            Team   @relation(fields: [teamId], references: [id])
+}
+
+model Match {
+  id           String     @id @default(uuid())
+  date         DateTime   @default(now())
+  scoreA       Int
+  scoreB       Int
+  winner       String
+  
+  // Foreign Keys mapping back to the other tables
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id])
+  
+  teamAId      String
+  teamA        Team       @relation("TeamA", fields: [teamAId], references: [id])
+  
+  teamBId      String
+  teamB        Team       @relation("TeamB", fields: [teamBId], references: [id])
+}

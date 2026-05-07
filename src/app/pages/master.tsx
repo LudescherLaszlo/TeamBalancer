@@ -39,7 +39,7 @@ export default function MasterPage() {
 
   const observerTarget = useRef<HTMLDivElement>(null);
 
-  // --- INFINITE SCROLL OBSERVER ---
+  // infinite scroll
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {

@@ -14,7 +14,7 @@ const teamSchema = z.object({
 });
 
 export const matchSchema = z.object({
-  tournamentId: z.string().catch("t_1"), // <-- Added tournament validation
+  tournamentId: z.string().catch("t_1"), 
   date: z.string().nullish().transform(val => val || new Date().toISOString()),
   teamA: teamSchema,
   teamB: teamSchema,

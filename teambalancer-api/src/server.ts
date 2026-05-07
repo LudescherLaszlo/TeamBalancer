@@ -36,3 +36,4 @@ async function startServer() {
 }
 
 startServer().catch(console.error);
+export { app, httpServer };

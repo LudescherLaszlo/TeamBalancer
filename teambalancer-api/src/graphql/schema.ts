@@ -1,8 +1,11 @@
+import { PrismaClient } from '@prisma/client';
 import { gql } from 'graphql-tag';
 import { WebSocketServer, WebSocket } from 'ws';
 import { faker } from '@faker-js/faker';
-import { matchesStore, tournamentsStore, Match, Tournament } from '../data/store';
 import { matchSchema } from '../validators/match.schema';
+
+// Initialize Prisma
+const prisma = new PrismaClient();
 
 // --- WEBSOCKET & SIMULATION ENGINE ---
 let wss: WebSocketServer | null = null;
@@ -34,7 +37,7 @@ export const typeDefs = gql`
     tournamentStats(tournamentId: ID!): TournamentStats!
   }
 
-  input PlayerInput { id: ID, name: String!, skillValue: Int!, skillAdjustment: String! }
+  input PlayerInput { name: String!, skillValue: Int!, skillAdjustment: String! }
   input TeamInput { name: String!, players: [PlayerInput!]!, totalSkill: Int! }
   input MatchInput { tournamentId: ID!, date: String!, teamA: TeamInput!, teamB: TeamInput!, scoreA: Int!, scoreB: Int!, winner: String! }
 
@@ -50,103 +53,181 @@ export const typeDefs = gql`
 
 export const resolvers = {
   Query: {
-    tournaments: () => tournamentsStore,
-    tournament: (_: any, { id }: { id: string }) => tournamentsStore.find(t => t.id === id),
-    matches: (_: any, { tournamentId, cursor, limit }: { tournamentId?: string, cursor?: string, limit: number }) => {
-      let filtered = tournamentId ? matchesStore.filter(m => m.tournamentId === tournamentId) : matchesStore;
-      let startIndex = 0;
-      if (cursor) {
-        const cursorIndex = filtered.findIndex(m => m.id === cursor);
-        if (cursorIndex >= 0) startIndex = cursorIndex + 1;
-      }
-      const paginatedMatches = filtered.slice(startIndex, startIndex + limit);
-      const hasNextPage = startIndex + limit < filtered.length;
-      const endCursor = paginatedMatches.length > 0 ? paginatedMatches[paginatedMatches.length - 1].id : null;
-      return { edges: paginatedMatches, pageInfo: { hasNextPage, endCursor } };
+    tournaments: async () => {
+      return await prisma.tournament.findMany();
     },
-    tournamentStats: (_: any, { tournamentId }: { tournamentId: string }) => {
-      const tMatches = matchesStore.filter(m => m.tournamentId === tournamentId);
-      const totalMatches = tMatches.length;
+    
+    tournament: async (_: any, { id }: { id: string }) => {
+      return await prisma.tournament.findUnique({ where: { id } });
+    },
+    
+    matches: async (_: any, { tournamentId, cursor, limit }: { tournamentId?: string, cursor?: string, limit: number }) => {
+      // Prisma cursor-based pagination
+      const dbMatches = await prisma.match.findMany({
+        take: limit + 1, // Fetch one extra to check if there's a next page
+        where: tournamentId ? { tournamentId } : {},
+        orderBy: { date: 'desc' },
+        ...(cursor && { cursor: { id: cursor }, skip: 1 }), // Skip the cursor itself
+        include: {
+          teamA: { include: { players: true } },
+          teamB: { include: { players: true } }
+        }
+      });
+
+      const hasNextPage = dbMatches.length > limit;
+      const edges = hasNextPage ? dbMatches.slice(0, -1) : dbMatches; // Drop the extra item
+      const endCursor = edges.length > 0 ? edges[edges.length - 1].id : null;
+
+      return { edges, pageInfo: { hasNextPage, endCursor } };
+    },
+    
+    tournamentStats: async (_: any, { tournamentId }: { tournamentId: string }) => {
+      // Using SQL COUNT for performance
+      const teamAWins = await prisma.match.count({ where: { tournamentId, winner: "Team A" } });
+      const teamBWins = await prisma.match.count({ where: { tournamentId, winner: "Team B" } });
+      
+      const matches = await prisma.match.findMany({
+        where: { tournamentId },
+        include: { teamA: true, teamB: true }
+      });
+      
+      const totalMatches = matches.length;
       if (totalMatches === 0) return { totalMatches: 0, teamAWins: 0, teamBWins: 0, avgSkillDiff: 0 };
-      const teamAWins = tMatches.filter(m => m.winner === "Team A").length;
-      const teamBWins = tMatches.filter(m => m.winner === "Team B").length;
-      const avgSkillDiff = tMatches.reduce((sum, m) => sum + Math.abs(m.teamA.totalSkill - m.teamB.totalSkill), 0) / totalMatches;
+      
+      const avgSkillDiff = matches.reduce((sum, m) => sum + Math.abs(m.teamA.totalSkill - m.teamB.totalSkill), 0) / totalMatches;
       return { totalMatches, teamAWins, teamBWins, avgSkillDiff: Math.round(avgSkillDiff) };
     }
   },
+  
   Tournament: {
-    matches: (parent: Tournament) => matchesStore.filter(m => m.tournamentId === parent.id)
+    matches: async (parent: any) => {
+      return await prisma.match.findMany({ 
+        where: { tournamentId: parent.id },
+        include: { teamA: { include: { players: true } }, teamB: { include: { players: true } } },
+        orderBy: { date: 'desc' }
+      });
+    }
   },
+  
   Mutation: {
-    createTournament: (_: any, { name }: { name: string }) => {
-      const newTourney: Tournament = { id: `t_${Date.now()}`, name, status: "Active" };
-      tournamentsStore.push(newTourney);
-      return newTourney;
+    createTournament: async (_: any, { name }: { name: string }) => {
+      return await prisma.tournament.create({
+        data: { name }
+      });
     },
-    createMatch: (_: any, { input }: { input: any }) => {
+    
+    createMatch: async (_: any, { input }: { input: any }) => {
       const validatedInput = matchSchema.parse(input); 
-      const newMatch = { id: `m_${Date.now()}`, ...validatedInput };
-      matchesStore.unshift(newMatch);
+      
+      const newMatch = await prisma.match.create({
+        data: {
+          tournament: { connect: { id: validatedInput.tournamentId } },
+          
+          date: new Date(validatedInput.date),
+          scoreA: validatedInput.scoreA,
+          scoreB: validatedInput.scoreB,
+          winner: validatedInput.winner,
+          teamA: {
+            create: {
+              name: validatedInput.teamA.name,
+              totalSkill: validatedInput.teamA.totalSkill,
+              players: { create: validatedInput.teamA.players }
+            }
+          },
+          teamB: {
+            create: {
+              name: validatedInput.teamB.name,
+              totalSkill: validatedInput.teamB.totalSkill,
+              players: { create: validatedInput.teamB.players }
+            }
+          }
+        },
+        include: { teamA: { include: { players: true } }, teamB: { include: { players: true } } }
+      });
+      
       return newMatch;
     },
-    updateMatch: (_: any, { id, input }: { id: string, input: any }) => {
-      const index = matchesStore.findIndex(m => m.id === id);
-      if (index === -1) throw new Error("Match not found");
+    
+    updateMatch: async (_: any, { id, input }: { id: string, input: any }) => {
       const validatedInput = matchSchema.parse(input);
-      matchesStore[index] = { id, ...validatedInput };
-      return matchesStore[index];
+      // Because relational updates are highly complex (updating nested players), 
+      // the standard pattern here is to update the top-level match stats (scores/winner).
+      const updatedMatch = await prisma.match.update({
+        where: { id },
+        data: {
+          scoreA: validatedInput.scoreA,
+          scoreB: validatedInput.scoreB,
+          winner: validatedInput.winner,
+        },
+        include: { teamA: { include: { players: true } }, teamB: { include: { players: true } } }
+      });
+      return updatedMatch;
     },
-    deleteMatch: (_: any, { id }: { id: string }) => {
-      const index = matchesStore.findIndex(m => m.id === id);
-      if (index === -1) return false;
-      matchesStore.splice(index, 1);
-      return true;
+    
+    deleteMatch: async (_: any, { id }: { id: string }) => {
+      try {
+        // Because of the 'onDelete: Cascade' in your schema, deleting the match 
+        // automatically deletes the connected teams and players!
+        await prisma.match.delete({ where: { id } });
+        return true;
+      } catch (e) {
+        return false;
+      }
     },
-    // --- NEW SIMULATION MUTATIONS ---
-    startSimulation: (_: any, { tournamentId }: { tournamentId: string }) => {
+    
+    startSimulation: async (_: any, { tournamentId }: { tournamentId: string }) => {
       if (simulationInterval) clearInterval(simulationInterval);
       
-      simulationInterval = setInterval(() => {
+      simulationInterval = setInterval(async () => {
         const baseSkill = faker.number.int({ min: 60, max: 100 });
         const diff = faker.number.int({ min: 0, max: 15 });
         const scoreA = faker.number.int({ min: 15, max: 25 });
         const scoreB = faker.number.int({ min: 15, max: 25 });
 
-        const newMatch = {
-          id: `m_${Date.now()}`,
-          tournamentId,
-          date: new Date().toISOString(),
-          scoreA,
-          scoreB,
-          winner: scoreA > scoreB ? "Team A" : "Team B",
-          teamA: {
-            name: "Team A",
-            totalSkill: baseSkill,
-            players: Array.from({ length: 2 }).map(() => ({
-              id: faker.string.uuid(),
-              name: faker.person.fullName(),
-              skillValue: Math.floor(baseSkill / 2),
-              skillAdjustment: faker.helpers.arrayElement(["+1", "+0", "-1"])
-            }))
+        // Generate and save Faker data directly to the SQLite DB
+        const dbMatch = await prisma.match.create({
+          data: {
+            tournament: { connect: { id: tournamentId } },
+            scoreA,
+            scoreB,
+            winner: scoreA > scoreB ? "Team A" : "Team B",
+            teamA: {
+              create: {
+                name: "Team A",
+                totalSkill: baseSkill,
+                players: {
+                  create: Array.from({ length: 2 }).map((_, idx) => ({
+                    name: faker.person.fullName(),
+                    skillValue: Math.floor(baseSkill / 2),
+                    skillAdjustment: faker.helpers.arrayElement(["+1", "+0", "-1"])
+                  }))
+                }
+              }
+            },
+            teamB: {
+              create: {
+                name: "Team B",
+                totalSkill: baseSkill - diff + faker.number.int({ min: 0, max: diff * 2 }),
+                players: {
+                  create: Array.from({ length: 2 }).map((_, idx) => ({
+                    name: faker.person.fullName(),
+                    skillValue: Math.floor(baseSkill / 2),
+                    skillAdjustment: faker.helpers.arrayElement(["+1", "+0", "-1"])
+                  }))
+                }
+              }
+            }
           },
-          teamB: {
-            name: "Team B",
-            totalSkill: baseSkill - diff + faker.number.int({ min: 0, max: diff * 2 }),
-            players: Array.from({ length: 2 }).map(() => ({
-              id: faker.string.uuid(),
-              name: faker.person.fullName(),
-              skillValue: Math.floor(baseSkill / 2),
-              skillAdjustment: faker.helpers.arrayElement(["+1", "+0", "-1"])
-            }))
-          }
-        };
+          include: { teamA: { include: { players: true } }, teamB: { include: { players: true } } }
+        });
         
-        matchesStore.unshift(newMatch);
-        broadcast({ type: 'NEW_MATCH', payload: newMatch });
-      }, 2000);
+        // Broadcast the real DB match to the frontend
+        broadcast({ type: 'NEW_MATCH', payload: dbMatch });
+      }, 2000); // Generates a match every 2 seconds
       
       return true;
     },
+    
     stopSimulation: () => {
       if (simulationInterval) {
         clearInterval(simulationInterval);

@@ -3,7 +3,6 @@ import { app } from '../server';
 import { matchesStore } from '../data/store';
 
 describe('Matches API Endpoints', () => {
-  // Before each test, we clear the RAM store to ensure a clean slate
   beforeEach(() => {
     matchesStore.length = 0; 
   });
@@ -127,7 +126,7 @@ describe('Matches API Endpoints', () => {
       expect(statsRes.body.teamAWins).toBe(1);
       expect(statsRes.body.teamBWins).toBe(1);
       expect(statsRes.body.winRateA).toBe(50);
-      expect(statsRes.body.avgSkillDiff).toBe(10); // 100 - 90 = 10
+      expect(statsRes.body.avgSkillDiff).toBe(10); 
     });
 
     it('should return empty stats if no matches exist', async () => {

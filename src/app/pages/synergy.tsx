@@ -1,11 +1,9 @@
 import { useNavigate } from "react-router";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { TeamBalancerLogo } from "../components/team-balancer-logo";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { useMatches } from "../contexts/match-context";
-import { ArrowLeft, Zap, TrendingUp, TrendingDown, Users, AlertCircle } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Users, AlertCircle, Loader2 } from "lucide-react";
 
 interface PlayerNode {
   id: string;
@@ -26,15 +24,55 @@ interface SynergyEdge {
 
 export default function SynergyPage() {
   const navigate = useNavigate();
-  const { matches, tournaments, activeTournamentId, setActiveTournamentId } = useMatches();
   const canvasRef = useRef<HTMLDivElement>(null);
+  
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<SynergyEdge | null>(null);
+  
+  // New state to hold matches from ALL tournaments
+  const [globalMatches, setGlobalMatches] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch all matches across the entire database when the page loads
+  useEffect(() => {
+    const fetchAllMatches = async () => {
+      try {
+        const res = await fetch("http://localhost:3000/graphql", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: `
+              query {
+                matches(limit: 5000) {
+                  edges {
+                    winner
+                    teamA { players { name } }
+                    teamB { players { name } }
+                  }
+                }
+              }
+            `
+          })
+        });
+        const json = await res.json();
+        if (json.data?.matches?.edges) {
+          setGlobalMatches(json.data.matches.edges);
+        }
+      } catch (err) {
+        console.error("Failed to fetch all tournaments data", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchAllMatches();
+  }, []);
 
   const calculateSynergies = () => {
     const playerStats = new Map<string, { games: number; partners: Map<string, { wins: number; losses: number }> }>();
     
-    matches.forEach(match => {
+    // Now iterating over ALL matches, ignoring tournament boundaries
+    globalMatches.forEach(match => {
       const processTeam = (players: any[] | undefined, won: boolean) => {
         if (!Array.isArray(players)) return; 
 
@@ -70,7 +108,6 @@ export default function SynergyPage() {
 
   const synergyData = calculateSynergies();
   
-  // Filter out simulated players
   const playerNames = Array.from(synergyData.entries())
     .filter(([name, stats]) => stats.partners.size > 0 && !name.includes("Sim Player"))
     .sort((a, b) => b[1].games - a[1].games)
@@ -127,7 +164,10 @@ export default function SynergyPage() {
   const edges = createEdges();
 
   const topChemistryPairs = edges.filter(e => e.strength >= 60).slice(0, 5);
-  const poorChemistryPairs = edges.filter(e => e.strength < 40).slice(0, 5);
+  const poorChemistryPairs = edges
+  .filter(e => e.strength < 40)
+  .sort((a, b) => a.strength - b.strength)
+  .slice(0, 5);
 
   const getEdgeColor = (strength: number): string => {
     if (strength >= 70) return "#0799ba"; 
@@ -170,30 +210,11 @@ export default function SynergyPage() {
             </Button>
           </div>
 
-          {/* Dropdown */}
+          {/* Updated Title Area (Selector & Bazinga Button Removed) */}
           <div className="mb-8 flex flex-col items-start gap-4">
-            <div className="w-full sm:w-[280px]">
-              <Select value={activeTournamentId} onValueChange={setActiveTournamentId}>
-                <SelectTrigger className="w-full bg-white border-[#8ec1b8] focus:ring-[#006895] shadow-sm">
-                  <SelectValue placeholder="Select Tournament" />
-                </SelectTrigger>
-                <SelectContent>
-                  {tournaments.map(t => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="absolute top-4 right-4 sm:top-8 sm:right-8 z-20">
-            <div className="bg-gradient-to-br from-[#006895] to-[#0799ba] px-4 py-2 sm:px-6 sm:py-3 rounded-full shadow-xl border-2 border-white/20">
-              <div className="flex items-center gap-2">
-                <Zap className="size-4 sm:size-5 text-white" />
-                <span className="text-white font-bold text-sm sm:text-lg">Bazinga: Synergy Engine</span>
-              </div>
+            <div>
+              <h2 className="text-2xl sm:text-3xl text-[#006895] font-bold mb-2">Synergy Engine</h2>
+              <p className="text-muted-foreground text-sm sm:text-base">Chemistry graph between the players</p>
             </div>
           </div>
 
@@ -203,23 +224,30 @@ export default function SynergyPage() {
               <CardHeader className="text-center border-b-2 border-[#8ec1b8]/20">
                 <CardTitle className="text-xl sm:text-3xl text-[#006895] flex flex-col sm:flex-row items-center justify-center gap-3">
                   <Users className="size-8" />
-                  Player Chemistry Network
+                  Global Chemistry Network
                 </CardTitle>
                 <CardDescription className="text-sm sm:text-base mt-2">
-                  Interactive synergy map showing teammate compatibility and win rates
+                  Interactive synergy map showing teammate compatibility across all tournaments
                 </CardDescription>
               </CardHeader>
               
               <CardContent className="p-4 sm:p-8">
                 
-                {/* EMPTY STATE CHECK */}
-                {playerNames.length === 0 ? (
+                {/* Check Loading State First */}
+                {isLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20 opacity-80">
+                    <Loader2 className="size-16 text-[#0799ba] animate-spin mb-4" />
+                    <h3 className="text-xl text-[#006895] font-semibold text-center">Analyzing Global Data...</h3>
+                    <p className="text-muted-foreground text-center max-w-md mt-2">
+                      Compiling player chemistry across all tournaments.
+                    </p>
+                  </div>
+                ) : playerNames.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 opacity-80">
                     <AlertCircle className="size-16 text-[#8ec1b8] mb-4" />
                     <h3 className="text-xl text-[#006895] font-semibold text-center">Not Enough Real Data</h3>
                     <p className="text-muted-foreground text-center max-w-md mt-2">
-                      This tournament currently only contains simulated 1v1 matches (which have no teammates) or no matches at all. 
-                      Add real team matches to generate the Synergy Graph!
+                      There are currently no real team matches in the database. Add real matches to generate the Synergy Graph!
                     </p>
                   </div>
                 ) : (

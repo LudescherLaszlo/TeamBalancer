@@ -24,17 +24,60 @@ interface SyncAction {
 }
 
 const MatchContext = createContext<MatchContextType | undefined>(undefined);
-const GQL_URL = "http://localhost:3000/graphql";
+const GQL_URL = "http://192.168.1.50:3000/graphql";
 
+// --- BULLETPROOF FETCHER ---
+// We now parse the JSON *before* checking !res.ok, because Apollo Server 
+// returns HTTP 400 for validation errors. We need to catch those specifically!
 const gqlFetch = async (query: string, variables = {}) => {
   const res = await fetch(GQL_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables })
   });
-  const json = await res.json();
-  if (json.errors) throw new Error(json.errors[0].message);
+  
+  const json = await res.json().catch(() => null); 
+  
+  if (json && json.errors) {
+    throw new Error(`GRAPHQL_ERROR: ${json.errors[0].message}`);
+  }
+  
+  if (!res.ok) {
+    throw new Error(`HTTP_ERROR: Server returned ${res.status}`);
+  }
+  
   return json.data;
+};
+
+// --- PAYLOAD SANITIZER ---
+const sanitizeForGraphQL = (payload: any) => {
+  return {
+    tournamentId: payload.tournamentId,
+    date: payload.date || new Date().toISOString(), // Fallback prevents Apollo 400 errors
+    scoreA: Number(payload.scoreA || 0),
+    scoreB: Number(payload.scoreB || 0),
+    winner: payload.winner || "Team A",
+    teamA: {
+      name: payload.teamA?.name || "Team A",
+      totalSkill: Number(payload.teamA?.totalSkill || 0),
+      players: (payload.teamA?.players || []).map((p: any) => ({
+        id: p.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        name: p.name || "Unknown Player",
+        skillValue: Number(p.skillValue || 0),
+        skillAdjustment: p.skillAdjustment || "+0"
+      }))
+    },
+    teamB: {
+      name: payload.teamB?.name || "Team B",
+      totalSkill: Number(payload.teamB?.totalSkill || 0),
+      players: (payload.teamB?.players || []).map((p: any) => ({
+        id: p.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        name: p.name || "Unknown Player",
+        skillValue: Number(p.skillValue || 0),
+        skillAdjustment: p.skillAdjustment || "+0"
+      }))
+    }
+  };
 };
 
 export function MatchProvider({ children }: { children: ReactNode }) {
@@ -46,7 +89,6 @@ export function MatchProvider({ children }: { children: ReactNode }) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
-  // --- 1. LOCAL MEMORY HELPERS ---
   const saveLocalCache = (data: Match[]) => localStorage.setItem('gqlMatchesCache', JSON.stringify(data));
   const getSyncQueue = (): SyncAction[] => JSON.parse(localStorage.getItem('gqlSyncQueue') || '[]');
   const addToSyncQueue = (action: Omit<SyncAction, 'id'>) => {
@@ -55,33 +97,53 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('gqlSyncQueue', JSON.stringify(queue));
   };
 
-  // --- 2. SYNCHRONIZATION ENGINE ---
+  // --- SYNCHRONIZATION ENGINE ---
   const syncWithServer = useCallback(async () => {
     const queue = getSyncQueue();
     if (queue.length === 0) return;
 
     console.log(`Syncing ${queue.length} background operations to GraphQL server...`);
     
+    const idTranslationMap: Record<string, string> = {};
+    const failedActions: SyncAction[] = [];
+
     for (const action of queue) {
       try {
-        if (action.type === 'CREATE') {
-          await gqlFetch(`mutation CreateMatch($input: MatchInput!) { createMatch(input: $input) { id } }`, { input: action.payload });
-        } else if (action.type === 'UPDATE') {
-          await gqlFetch(`mutation UpdateMatch($id: ID!, $input: MatchInput!) { updateMatch(id: $id, input: $input) { id } }`, { id: action.matchId, input: action.payload });
-        } else if (action.type === 'DELETE') {
-          await gqlFetch(`mutation DeleteMatch($id: ID!) { deleteMatch(id: $id) }`, { id: action.matchId });
+        let targetId = action.matchId;
+        if (targetId && idTranslationMap[targetId]) {
+          targetId = idTranslationMap[targetId];
         }
-      } catch (err) {
-        console.error("Failed to sync action, network still down.");
-        return; 
+
+        if (action.type === 'CREATE') {
+          const data = await gqlFetch(`mutation CreateMatch($input: MatchInput!) { createMatch(input: $input) { id } }`, { input: action.payload });
+          if (action.matchId && data?.createMatch?.id) {
+            idTranslationMap[action.matchId] = data.createMatch.id;
+          }
+        } else if (action.type === 'UPDATE') {
+          await gqlFetch(`mutation UpdateMatch($id: ID!, $input: MatchInput!) { updateMatch(id: $id, input: $input) { id } }`, { id: targetId, input: action.payload });
+        } else if (action.type === 'DELETE') {
+          await gqlFetch(`mutation DeleteMatch($id: ID!) { deleteMatch(id: $id) }`, { id: targetId });
+        }
+      } catch (err: any) {
+        if (err.message && err.message.includes('GRAPHQL_ERROR')) {
+          console.error("GraphQL validation rejected this action. Dropping it to unblock queue.", err.message);
+        } else {
+          console.error("Network dropped mid-sync. Pausing queue.");
+          failedActions.push(action);
+          break; 
+        }
       }
     }
 
-    localStorage.removeItem('gqlSyncQueue');
-    loadMatches(true); // Pull fresh data
+    if (failedActions.length > 0) {
+      localStorage.setItem('gqlSyncQueue', JSON.stringify(failedActions));
+    } else {
+      localStorage.removeItem('gqlSyncQueue');
+      loadMatches(true); // Fetch fresh data ONLY AFTER the queue completes!
+    }
   }, []);
 
-  // --- 3. FETCH & WEBSOCKETS ---
+
   useEffect(() => {
     const fetchTournaments = async () => {
       try {
@@ -93,7 +155,7 @@ export function MatchProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const handleOnline = () => { setIsOffline(false); syncWithServer(); loadMatches(true); };
+    const handleOnline = () => { setIsOffline(false); syncWithServer(); };
     const handleOffline = () => setIsOffline(true);
 
     window.addEventListener('online', handleOnline);
@@ -101,7 +163,6 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     
     loadMatches(true);
 
-    // WebSocket logic for Fake Entity Generation (Silver Challenge)
     const ws = new WebSocket("ws://localhost:3000");
     ws.onmessage = (event) => {
       try {
@@ -163,12 +224,12 @@ export function MatchProvider({ children }: { children: ReactNode }) {
 
   const getMatchById = (id: string) => matches.find(m => m.id === id);
 
-  // --- 4. CRUD OPERATIONS (Optimistic + Queued) ---
   const createMatch = async (matchData: any) => {
-    const payload = { ...matchData, tournamentId: matchData.tournamentId || activeTournamentId };
+    const rawPayload = { ...matchData, tournamentId: matchData.tournamentId || activeTournamentId };
+    const cleanInput = sanitizeForGraphQL(rawPayload);
     
-    const tempMatch = { id: `temp_${Date.now()}`, ...payload };
-    if (payload.tournamentId === activeTournamentId) {
+    const tempMatch = { id: `temp_${Date.now()}`, ...rawPayload };
+    if (rawPayload.tournamentId === activeTournamentId) {
       const updated = [tempMatch, ...matches];
       setMatches(updated);
       saveLocalCache(updated);
@@ -177,34 +238,35 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     try {
       if (isOffline) throw new Error("Offline");
       const mutation = `mutation CreateMatch($input: MatchInput!) { createMatch(input: $input) { id tournamentId date scoreA scoreB winner teamA { name totalSkill players { id name skillValue skillAdjustment } } teamB { name totalSkill players { id name skillValue skillAdjustment } } } }`;
-      const data = await gqlFetch(mutation, { input: payload });
+      const data = await gqlFetch(mutation, { input: cleanInput });
       
-      if (payload.tournamentId === activeTournamentId) {
+      if (rawPayload.tournamentId === activeTournamentId) {
         setMatches(prev => prev.map(m => m.id === tempMatch.id ? data.createMatch : m));
       }
       return data.createMatch;
     } catch (error) {
       setIsOffline(true);
-      addToSyncQueue({ type: 'CREATE', payload });
+      addToSyncQueue({ type: 'CREATE', matchId: tempMatch.id, payload: cleanInput });
       return tempMatch;
     }
   };
 
   const updateMatch = async (id: string, matchData: any) => {
-    const payload = { ...matchData, tournamentId: matchData.tournamentId || activeTournamentId };
+    const rawPayload = { ...matchData, tournamentId: matchData.tournamentId || activeTournamentId };
+    const cleanInput = sanitizeForGraphQL(rawPayload);
     
-    const updatedMatches = matches.map(m => m.id === id ? { ...m, ...payload } as any : m);
+    const updatedMatches = matches.map(m => m.id === id ? { ...m, ...rawPayload } as any : m);
     setMatches(updatedMatches);
     saveLocalCache(updatedMatches);
 
     try {
       if (isOffline) throw new Error("Offline");
       const mutation = `mutation UpdateMatch($id: ID!, $input: MatchInput!) { updateMatch(id: $id, input: $input) { id tournamentId date scoreA scoreB winner teamA { name totalSkill players { id name skillValue skillAdjustment } } teamB { name totalSkill players { id name skillValue skillAdjustment } } } }`;
-      const data = await gqlFetch(mutation, { id, input: payload });
+      const data = await gqlFetch(mutation, { id, input: cleanInput });
       return data.updateMatch;
     } catch (error) {
       setIsOffline(true);
-      addToSyncQueue({ type: 'UPDATE', matchId: id, payload });
+      addToSyncQueue({ type: 'UPDATE', matchId: id, payload: cleanInput });
     }
   };
 

@@ -33,14 +33,14 @@ export const matchController = {
     }
   },
 
-  // Get by ID
+
   getMatchById: (req: Request, res: Response) => {
     const match = matchesStore.find(m => m.id === req.params.id);
     if (!match) return res.status(404).json({ error: "Match not found" });
     res.status(200).json(match);
   },
 
-  // Create
+
 createMatch: (req: Request, res: Response) => {
     try {
       const validatedData = matchSchema.parse(req.body);
@@ -58,7 +58,7 @@ createMatch: (req: Request, res: Response) => {
     }
   },
 
-  // Update
+
   updateMatch: (req: Request, res: Response) => {
     try {
       const validatedData = matchSchema.partial().parse(req.body);
@@ -73,7 +73,7 @@ createMatch: (req: Request, res: Response) => {
     }
   },
 
-  // Delete
+
   deleteMatch: (req: Request, res: Response) => {
     const index = matchesStore.findIndex(m => m.id === req.params.id);
     if (index === -1) return res.status(404).json({ error: "Match not found" });
@@ -82,7 +82,7 @@ createMatch: (req: Request, res: Response) => {
     res.status(204).send();
   },
 
-  // Statistics
+
   getStatistics: (req: Request, res: Response) => {
     const totalMatches = matchesStore.length;
     if (totalMatches === 0) {
