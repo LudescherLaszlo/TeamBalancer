@@ -51,7 +51,6 @@ const gqlFetch = async (query: string, variables = {}) => {
   return json.data;
 };
 
-// --- PAYLOAD SANITIZER ---
 const sanitizeForGraphQL = (payload: any) => {
   return {
     tournamentId: payload.tournamentId,
@@ -63,7 +62,7 @@ const sanitizeForGraphQL = (payload: any) => {
       name: payload.teamA?.name || "Team A",
       totalSkill: Number(payload.teamA?.totalSkill || 0),
       players: (payload.teamA?.players || []).map((p: any) => ({
-        id: p.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+       //id: p.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         name: p.name || "Unknown Player",
         skillValue: Number(p.skillValue || 0),
         skillAdjustment: p.skillAdjustment || "+0"
@@ -73,7 +72,7 @@ const sanitizeForGraphQL = (payload: any) => {
       name: payload.teamB?.name || "Team B",
       totalSkill: Number(payload.teamB?.totalSkill || 0),
       players: (payload.teamB?.players || []).map((p: any) => ({
-        id: p.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        //id: p.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         name: p.name || "Unknown Player",
         skillValue: Number(p.skillValue || 0),
         skillAdjustment: p.skillAdjustment || "+0"
@@ -141,7 +140,7 @@ export function MatchProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('gqlSyncQueue', JSON.stringify(failedActions));
     } else {
       localStorage.removeItem('gqlSyncQueue');
-      loadMatches(true); // Fetch fresh data ONLY AFTER the queue completes!
+      loadMatches(true); 
     }
   }, []);
 
@@ -152,7 +151,6 @@ export function MatchProvider({ children }: { children: ReactNode }) {
         const data = await gqlFetch(`query { tournaments { id name status } }`);
         setTournaments(data.tournaments);
         
-        // 🚨 ADD THIS: Auto-select the first real tournament from the DB!
         if (data.tournaments && data.tournaments.length > 0) {
           setActiveTournamentId(data.tournaments[0].id);
         }
@@ -210,7 +208,7 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     `;
 
     try {
-      const data = await gqlFetch(query, { tournamentId: activeTournamentId, cursor: reset ? null : endCursor, limit: 10 });
+      const data = await gqlFetch(query, { tournamentId: activeTournamentId, cursor: reset ? null : endCursor, limit: 100 });
       const newMatches = reset ? data.matches.edges : [...matches, ...data.matches.edges];
       
       setMatches(newMatches);

@@ -98,6 +98,16 @@ export const resolvers = {
       return { totalMatches, teamAWins, teamBWins, avgSkillDiff: Math.round(avgSkillDiff) };
     }
   },
+
+  Match: {
+    date: (parent: any) => {
+      const dateVal = Number.isInteger(parent.date) || /^\d+$/.test(parent.date) 
+          ? Number(parent.date) 
+          : parent.date;
+          
+      return new Date(dateVal).toISOString();
+    }
+  },
   
   Tournament: {
     status: (parent: any) => parent.status || "Active",
