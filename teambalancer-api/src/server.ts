@@ -7,10 +7,11 @@ import { expressMiddleware } from '@as-integrations/express5';
 import { typeDefs, resolvers, setWebSocketServer } from './graphql/schema';
 import { PrismaClient } from '@prisma/client';
 import { mockMatches } from './data/mock-data';
+import prisma from './prisma'
+import matchRoutes from './routes/match.routes';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const prisma = new PrismaClient();
 
 // Create a raw HTTP server to attach both Express AND WebSockets
 const httpServer = createServer(app);
@@ -77,29 +78,33 @@ async function seedDatabaseIfEmpty() {
         }
       });
     }
-    console.log("✅ Mock data seeded successfully!");
+    console.log("Mock data seeded successfully!");
   } else {
-    console.log(`✅ Database already contains ${matchCount} matches. Skipping seed.`);
+    console.log(`Database already contains ${matchCount} matches. Skipping seed.`);
   }
 }
 
 async function startServer() {
   await apolloServer.start();
 
-  // Allow cross-origin requests from any IP on your network
+  
   app.use(cors({ origin: '*' }));
   app.use(express.json());
   
+  app.use('/api/matches', matchRoutes);
+
   app.use('/graphql', expressMiddleware(apolloServer));
 
   // Run the seed check before starting the server
   await seedDatabaseIfEmpty();
 
   // Listen on 0.0.0.0 to allow network connections
-  httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 GraphQL Server ready at http://0.0.0.0:${PORT}/graphql`);
-    console.log(`📡 WebSocket Server ready at ws://0.0.0.0:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== 'test') {
+    httpServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`GraphQL Server ready at http://0.0.0.0:${PORT}/graphql`);
+      console.log(`WebSocket Server ready at ws://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
 startServer().catch(console.error);

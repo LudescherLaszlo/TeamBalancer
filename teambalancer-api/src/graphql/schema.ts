@@ -3,9 +3,7 @@ import { gql } from 'graphql-tag';
 import { WebSocketServer, WebSocket } from 'ws';
 import { faker } from '@faker-js/faker';
 import { matchSchema } from '../validators/match.schema';
-
-// Initialize Prisma
-const prisma = new PrismaClient();
+import prisma from '../prisma';
 
 // --- WEBSOCKET & SIMULATION ENGINE ---
 let wss: WebSocketServer | null = null;
@@ -82,7 +80,6 @@ export const resolvers = {
     },
     
     tournamentStats: async (_: any, { tournamentId }: { tournamentId: string }) => {
-      // Using SQL COUNT for performance
       const teamAWins = await prisma.match.count({ where: { tournamentId, winner: "Team A" } });
       const teamBWins = await prisma.match.count({ where: { tournamentId, winner: "Team B" } });
       
@@ -130,10 +127,10 @@ export const resolvers = {
     createMatch: async (_: any, { input }: { input: any }) => {
       const validatedInput = matchSchema.parse(input); 
       
+      console.log(validatedInput); // Debug log to verify input structure before DB operations
       const newMatch = await prisma.match.create({
         data: {
           tournament: { connect: { id: validatedInput.tournamentId } },
-          
           date: new Date(validatedInput.date),
           scoreA: validatedInput.scoreA,
           scoreB: validatedInput.scoreB,
@@ -142,14 +139,26 @@ export const resolvers = {
             create: {
               name: validatedInput.teamA.name,
               totalSkill: validatedInput.teamA.totalSkill,
-              players: { create: validatedInput.teamA.players }
+              players: { 
+                create: validatedInput.teamA.players.map((p: any) => ({
+                  name: p.name,
+                  skillValue: p.skillValue,
+                  skillAdjustment: p.skillAdjustment
+                }))
+              }
             }
           },
           teamB: {
             create: {
               name: validatedInput.teamB.name,
               totalSkill: validatedInput.teamB.totalSkill,
-              players: { create: validatedInput.teamB.players }
+              players: { 
+                create: validatedInput.teamB.players.map((p: any) => ({
+                  name: p.name,
+                  skillValue: p.skillValue,
+                  skillAdjustment: p.skillAdjustment
+                }))
+              }
             }
           }
         },
