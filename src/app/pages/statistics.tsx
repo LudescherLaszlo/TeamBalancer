@@ -20,7 +20,7 @@ const getPlayerTier = (gamesPlayed: number) => {
 
 export default function StatisticsPage() {
   const navigate = useNavigate();
-  const { matches, tournaments, activeTournamentId, setActiveTournamentId } = useMatches(); 
+  const { matches, tournaments, activeTournamentId, setActiveTournamentId, startSimulation, stopSimulation } = useMatches(); 
   
   const [isSimulating, setIsSimulating] = useState(false);
 
@@ -85,21 +85,12 @@ export default function StatisticsPage() {
 
   // --- SERVER-SIDE SIMULATION TRIGGER ---
   const toggleSimulation = async () => {
-    try {
-      const query = isSimulating 
-        ? `mutation { stopSimulation }`
-        : `mutation { startSimulation(tournamentId: "${activeTournamentId}") }`;
-        
-      await fetch("http://localhost:3000/graphql", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-      });
-      
-      setIsSimulating(!isSimulating);
-    } catch (error) {
-      console.error("Failed to toggle simulation:", error);
+    if (isSimulating) {
+      await stopSimulation();
+    } else {
+      await startSimulation(activeTournamentId);
     }
+    setIsSimulating(!isSimulating);
   };
 
   const topPlayers = allPlayers.slice(0, 8).map(p => ({ name: p.name, games: p.games }));

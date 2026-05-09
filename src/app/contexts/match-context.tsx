@@ -14,6 +14,9 @@ interface MatchContextType {
   updateMatch: (id: string, match: Partial<Match>) => Promise<Match | undefined>;
   deleteMatch: (id: string) => Promise<void>;
   getMatchById: (id: string) => Match | undefined;
+  startSimulation: (tournamentId: string) => Promise<void>;
+  stopSimulation: () => Promise<void>;
+  fetchGlobalMatches: () => Promise<any[]>;
 }
 
 interface SyncAction {
@@ -29,8 +32,6 @@ const MatchContext = createContext<MatchContextType | undefined>(undefined);
 
 
 // --- BULLETPROOF FETCHER ---
-// We now parse the JSON *before* checking !res.ok, because Apollo Server 
-// returns HTTP 400 for validation errors. We need to catch those specifically!
 const gqlFetch = async (query: string, variables = {}) => {
   const res = await fetch(GQL_URL, {
     method: 'POST',
@@ -54,7 +55,7 @@ const gqlFetch = async (query: string, variables = {}) => {
 const sanitizeForGraphQL = (payload: any) => {
   return {
     tournamentId: payload.tournamentId,
-    date: payload.date || new Date().toISOString(), // Fallback prevents Apollo 400 errors
+    date: payload.date || new Date().toISOString(), 
     scoreA: Number(payload.scoreA || 0),
     scoreB: Number(payload.scoreB || 0),
     winner: payload.winner || "Team A",
@@ -290,8 +291,51 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const startSimulation = async (tournamentId: string) => {
+    try {
+      if (isOffline) throw new Error("Offline");
+      await gqlFetch(`mutation { startSimulation(tournamentId: "${tournamentId}") }`);
+    } catch (error) {
+      console.error("Failed to start simulation:", error);
+    }
+  };
+
+  const stopSimulation = async () => {
+    try {
+      if (isOffline) throw new Error("Offline");
+      await gqlFetch(`mutation { stopSimulation }`);
+    } catch (error) {
+      console.error("Failed to stop simulation:", error);
+    }
+  };
+
+  const fetchGlobalMatches = async () => {
+    try {
+      const query = `
+        query {
+          matches(limit: 5000) {
+            edges {
+              winner
+              teamA { players { name } }
+              teamB { players { name } }
+            }
+          }
+        }
+      `;
+      const data = await gqlFetch(query);
+      return data?.matches?.edges || [];
+    } catch (err) {
+      console.error("Failed to fetch global matches", err);
+      return [];
+    }
+  };
+
   return (
-    <MatchContext.Provider value={{ matches, tournaments, activeTournamentId, setActiveTournamentId, hasNextPage, isLoadingMore, isOffline, loadMatches, createMatch, updateMatch, deleteMatch, getMatchById }}>
+    <MatchContext.Provider value={{ 
+      matches, tournaments, activeTournamentId, setActiveTournamentId, hasNextPage, 
+      isLoadingMore, isOffline, loadMatches, createMatch, updateMatch, deleteMatch, getMatchById,
+      startSimulation, stopSimulation, fetchGlobalMatches 
+    }}>
       {children}
     </MatchContext.Provider>
   );

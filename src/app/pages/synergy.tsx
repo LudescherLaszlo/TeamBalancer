@@ -4,6 +4,7 @@ import { TeamBalancerLogo } from "../components/team-balancer-logo";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { ArrowLeft, TrendingUp, TrendingDown, Users, AlertCircle, Loader2 } from "lucide-react";
+import { useMatches } from "../contexts/match-context";
 
 interface PlayerNode {
   id: string;
@@ -25,6 +26,8 @@ interface SynergyEdge {
 export default function SynergyPage() {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  const { fetchGlobalMatches } = useMatches();
   
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<SynergyEdge | null>(null);
@@ -35,38 +38,15 @@ export default function SynergyPage() {
 
   // Fetch all matches across the entire database when the page loads
   useEffect(() => {
-    const fetchAllMatches = async () => {
-      try {
-        const res = await fetch("http://localhost:3000/graphql", {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query: `
-              query {
-                matches(limit: 5000) {
-                  edges {
-                    winner
-                    teamA { players { name } }
-                    teamB { players { name } }
-                  }
-                }
-              }
-            `
-          })
-        });
-        const json = await res.json();
-        if (json.data?.matches?.edges) {
-          setGlobalMatches(json.data.matches.edges);
-        }
-      } catch (err) {
-        console.error("Failed to fetch all tournaments data", err);
-      } finally {
-        setIsLoading(false);
-      }
+    const loadData = async () => {
+      setIsLoading(true);
+      const data = await fetchGlobalMatches();
+      setGlobalMatches(data);
+      setIsLoading(false);
     };
     
-    fetchAllMatches();
-  }, []);
+    loadData();
+  }, [fetchGlobalMatches]);
 
   const calculateSynergies = () => {
     const playerStats = new Map<string, { games: number; partners: Map<string, { wins: number; losses: number }> }>();
