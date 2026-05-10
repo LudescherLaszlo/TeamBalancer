@@ -3,6 +3,7 @@ import { MatchProvider } from "../contexts/match-context";
 import { useActivityTracker } from "../hooks/useActivityTracker";
 import { AnimatePresence, motion, Variants } from "framer-motion";
 import { OfflineBanner } from "../components/offline-banner";
+import { AuthProvider } from "../contexts/auth-context";
 
 const bubbleVariants: Variants = {
   initial: { 
@@ -39,27 +40,29 @@ export default function RootLayout() {
   const currentOutlet = useOutlet();
 
   return (
-    <MatchProvider>
-      <div className="min-h-screen w-full flex flex-col bg-background overflow-hidden">
-        
-        {/* Offline Banner sits at the absolute top, outside page transitions */}
-        <OfflineBanner />
+    <AuthProvider>
+      <MatchProvider>
+        <div className="min-h-screen w-full flex flex-col bg-background overflow-hidden">
+          
+          {/* Offline Banner sits at the absolute top, outside page transitions */}
+          <OfflineBanner />
 
-        {/* mode="wait" ensures the old page fades out completely before the new one bounces in */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            variants={bubbleVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            className="flex-1 origin-bottom" 
-          >
-            {/* Replaced <Outlet /> with the frozen hook value */}
-            {currentOutlet}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-    </MatchProvider>
+          {/* mode="wait" ensures the old page fades out completely before the new one bounces in */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={location.pathname}
+              variants={bubbleVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex-1 origin-bottom" 
+            >
+              {/* Replaced <Outlet /> with the frozen hook value */}
+              {currentOutlet}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </MatchProvider>
+    </AuthProvider>
   );
 }

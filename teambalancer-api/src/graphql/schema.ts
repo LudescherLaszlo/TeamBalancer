@@ -27,12 +27,16 @@ export const typeDefs = gql`
   type MatchConnection { edges: [Match!]!, pageInfo: PageInfo! }
   type PageInfo { hasNextPage: Boolean!, endCursor: String }
   type TournamentStats { totalMatches: Int!, teamAWins: Int!, teamBWins: Int!, avgSkillDiff: Int! }
-
+  type Permission { id: ID!, name: String! }
+  type Role { id: ID!, name: String!, permissions: [Permission!]! }
+  type User { id: ID!, email: String!, role: Role! }
+  
   type Query {
     tournaments: [Tournament!]!
     tournament(id: ID!): Tournament
     matches(tournamentId: ID, cursor: String, limit: Int = 5): MatchConnection!
     tournamentStats(tournamentId: ID!): TournamentStats!
+    login(email: String!, password: String!): User
   }
 
   input PlayerInput { name: String!, skillValue: Int!, skillAdjustment: String! }
@@ -51,6 +55,8 @@ export const typeDefs = gql`
 
 export const resolvers = {
   Query: {
+
+    
     tournaments: async () => {
       return await prisma.tournament.findMany();
     },
@@ -93,6 +99,19 @@ export const resolvers = {
       
       const avgSkillDiff = matches.reduce((sum, m) => sum + Math.abs(m.teamA.totalSkill - m.teamB.totalSkill), 0) / totalMatches;
       return { totalMatches, teamAWins, teamBWins, avgSkillDiff: Math.round(avgSkillDiff) };
+    },
+
+    login: async (_: any, { email, password }: { email: string, password: string }) => {
+      // Find the user and explicitly include their role and permissions!
+      const user = await prisma.user.findUnique({
+        where: { email },
+        include: { role: { include: { permissions: true } } }
+      });
+      
+      if (!user) throw new Error("User not found");
+      if (user.password !== password) throw new Error("Invalid password");
+      
+      return user; // Full stack persistency checked!
     }
   },
 

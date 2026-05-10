@@ -7,6 +7,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { useAuth } from "../contexts/auth-context";
+import { useState } from "react";
 
 const loginSchema = z.object({
   email: z.string().min(1, "Email is required").email("Invalid email address"),
@@ -16,15 +18,53 @@ const loginSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
+  const { login } = useAuth();
   const navigate = useNavigate();
+  const [apiError, setApiError] = useState("");
   
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
   });
 
-  const onSubmit = (data: LoginFormValues) => {
-    console.log("Logging in with:", data);
-    navigate("/matches");
+  const onSubmit = async (data: LoginFormValues) => {
+    setApiError("");
+    const IP = import.meta.env.VITE_SERVER_IP || "localhost";
+    
+    try {
+      const res = await fetch(`http://${IP}:3000/graphql`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `
+            query { 
+              login(email: "${data.email}", password: "${data.password}") { 
+                id 
+                email 
+                role { 
+                  name 
+                  permissions { 
+                    name 
+                  } 
+                } 
+              } 
+            }
+          `
+        })
+      });
+      
+      const json = await res.json();
+      
+      if (json.errors) {
+        throw new Error(json.errors[0].message);
+      }
+      
+      // Save full user (with role/permissions) to the Auth Context
+      login(json.data.login);
+      navigate("/matches");
+      
+    } catch (err: any) {
+      setApiError(err.message || "An unexpected error occurred during login.");
+    }
   };
 
   return (
@@ -40,6 +80,14 @@ export default function LoginPage() {
 
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            
+            {/* Display GraphQL Backend Errors Here */}
+            {apiError && (
+              <div className="p-3 text-sm text-red-600 bg-red-100 rounded-md border border-red-200">
+                {apiError}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -48,6 +96,7 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 className={`bg-input-background border-border focus:ring-2 focus:ring-[#006895] ${errors.email ? "border-red-500" : ""}`}
                 {...register("email")}
+                disabled={isSubmitting}
               />
               {errors.email && <p className="text-sm text-red-500">{errors.email.message}</p>}
             </div>
@@ -60,6 +109,7 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 className={`bg-input-background border-border focus:ring-2 focus:ring-[#006895] ${errors.password ? "border-red-500" : ""}`}
                 {...register("password")}
+                disabled={isSubmitting}
               />
               {errors.password && <p className="text-sm text-red-500">{errors.password.message}</p>}
             </div>
@@ -71,7 +121,7 @@ export default function LoginPage() {
                 className="w-full bg-[#006895] hover:bg-[#005177] text-white py-6 transition-all duration-300"
                 size="lg"
               >
-                Sign In
+                {isSubmitting ? "Signing in..." : "Sign In"}
               </Button>
               <button
                 type="button"

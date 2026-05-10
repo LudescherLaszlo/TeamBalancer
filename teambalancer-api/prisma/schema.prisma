@@ -48,3 +48,27 @@ model Match {
   teamBId      String
   teamB        Team       @relation("TeamB", fields: [teamBId], references: [id])
 }
+
+model User {
+  id       String @id @default(uuid())
+  email    String @unique
+  password String // Plain text for this assignment
+  
+  roleId   String
+  role     Role   @relation(fields: [roleId], references: [id])
+}
+
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique // e.g., 'ADMIN', 'USER'
+  
+  users       User[]
+  permissions Permission[] @relation("RolePermissions") // Many-to-Many relation
+}
+
+model Permission {
+  id    String @id @default(uuid())
+  name  String @unique // e.g., 'CREATE_MATCH', 'DELETE_MATCH', 'SIMULATE'
+  
+  roles Role[] @relation("RolePermissions")
+}

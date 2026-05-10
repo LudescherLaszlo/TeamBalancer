@@ -27,6 +27,42 @@ const apolloServer = new ApolloServer({
 
 // --- DATABASE SEEDING FUNCTION ---
 async function seedDatabaseIfEmpty() {
+  // --- SEED ROLES, PERMISSIONS, AND USERS ---
+  const roleCount = await prisma.role.count();
+  if (roleCount === 0) {
+    console.log("🔐 Seeding Roles, Permissions, and Users...");
+    
+    // Create Permissions
+    const manageMatches = await prisma.permission.create({ data: { name: "MANAGE_MATCHES" } });
+    const manageSim = await prisma.permission.create({ data: { name: "MANAGE_SIMULATION" } });
+    const viewStats = await prisma.permission.create({ data: { name: "VIEW_STATS" } });
+
+    // Create Admin Role (Gets all permissions)
+    const adminRole = await prisma.role.create({
+      data: {
+        name: "ADMIN",
+        permissions: { connect: [{ id: manageMatches.id }, { id: manageSim.id }, { id: viewStats.id }] }
+      }
+    });
+
+    // Create Normal User Role (Gets restricted permissions)
+    const userRole = await prisma.role.create({
+      data: {
+        name: "USER",
+        permissions: { connect: [{ id: viewStats.id }] }
+      }
+    });
+
+    // Create Test Users
+    await prisma.user.create({
+      data: { email: "admin@test.com", password: "password123", roleId: adminRole.id }
+    });
+    
+    await prisma.user.create({
+      data: { email: "user@test.com", password: "password123", roleId: userRole.id }
+    });
+  }
+
   const matchCount = await prisma.match.count();
   
   if (matchCount === 0) {

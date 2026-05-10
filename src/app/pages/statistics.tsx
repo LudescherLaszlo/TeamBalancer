@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useMatches } from "../contexts/match-context";
 import { ArrowLeft, Trophy, Users, TrendingUp, Target, Calendar, Play, Square, Zap, PieChart as PieChartIcon, BarChart3 } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { useAuth } from "../contexts/auth-context";
 
 // Helper functions
 const getPlayerTier = (gamesPlayed: number) => {
@@ -20,6 +21,7 @@ const getPlayerTier = (gamesPlayed: number) => {
 
 export default function StatisticsPage() {
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const { matches, tournaments, activeTournamentId, setActiveTournamentId, startSimulation, stopSimulation } = useMatches(); 
   
   const [isSimulating, setIsSimulating] = useState(false);
@@ -105,14 +107,15 @@ export default function StatisticsPage() {
             <TeamBalancerLogo iconSize={60} showTagline={false} layout="horizontal" />
           </div>
           <div className="flex flex-wrap gap-3 w-full sm:w-auto items-center">
-            <Button
-              className={`flex-1 sm:flex-none ${isSimulating ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'} text-white shadow-lg transition-colors`}
-              onClick={toggleSimulation}
-            >
-              {isSimulating ? <Square className="mr-2 size-4 fill-current" /> : <Play className="mr-2 size-4 fill-current" />}
-              {isSimulating ? "Stop Sim" : "Start Sim"}
-            </Button>
-            
+            {isAdmin && (
+              <Button
+                className={`flex-1 sm:flex-none ${isSimulating ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'} text-white shadow-lg transition-colors`}
+                onClick={toggleSimulation}
+              >
+                {isSimulating ? <Square className="mr-2 size-4 fill-current" /> : <Play className="mr-2 size-4 fill-current" />}
+                {isSimulating ? "Stop Sim" : "Start Sim"}
+              </Button>
+            )}
             <Button
               className="flex-1 sm:flex-none bg-gradient-to-r from-[#006895] to-[#0799ba] hover:from-[#005177] hover:to-[#06859f] text-white shadow-lg"
               onClick={() => navigate("/synergy")}

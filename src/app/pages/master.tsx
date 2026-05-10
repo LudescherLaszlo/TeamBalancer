@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { MatchFormDialog } from "../components/match-form-dialog";
 import { DeleteMatchDialog } from "../components/delete-match-dialog";
-
+import { useAuth } from "../contexts/auth-context";
 import { useMatches } from "../contexts/match-context";
 import { Match } from "../data/mock-data";
 
@@ -28,7 +28,7 @@ const tableRowVariants: Variants = {
 
 export default function MasterPage() {
   const navigate = useNavigate();
-  
+  const { isAdmin } = useAuth();
   // Destructured tournaments, activeTournamentId, and setActiveTournamentId for the filter
   const { matches, tournaments, activeTournamentId, setActiveTournamentId, loadMatches, hasNextPage, isLoadingMore, createMatch, updateMatch, deleteMatch } = useMatches();
   
@@ -181,13 +181,15 @@ export default function MasterPage() {
                   </Select>
 
                   <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                    <Button
-                      className="bg-[#006895] hover:bg-[#005177] text-white transition-all duration-300 w-full sm:w-auto"
-                      onClick={handleAddMatch}
-                    >
-                      <Plus className="mr-2 size-4" />
-                      Add Match
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        className="bg-[#006895] hover:bg-[#005177] text-white transition-all duration-300 w-full sm:w-auto"
+                        onClick={handleAddMatch}
+                      >
+                        <Plus className="mr-2 size-4" />
+                        Add Match
+                      </Button>
+                    )}
                   </motion.div>
                 </div>
               </div>
@@ -255,28 +257,32 @@ export default function MasterPage() {
                             </TableCell>
                             <TableCell className="py-4 text-right">
                               <div className="flex items-center justify-end gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-[#0799ba] hover:text-[#006895] hover:bg-[#0799ba]/10"
-                                  onClick={(e) => {
-                                    e.stopPropagation(); // Prevents row click when clicking Edit
-                                    handleEdit(match.id);
-                                  }}
-                                >
-                                  <Edit2 className="size-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-destructive hover:bg-destructive/10"
-                                  onClick={(e) => {
-                                    e.stopPropagation(); // Prevents row click when clicking Delete
-                                    handleDelete(match.id);
-                                  }}
-                                >
-                                  <Trash2 className="size-4" />
-                                </Button>
+                                {isAdmin && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-[#0799ba] hover:text-[#006895] hover:bg-[#0799ba]/10"
+                                      onClick={(e) => {
+                                        e.stopPropagation(); 
+                                        handleEdit(match.id);
+                                      }}
+                                    >
+                                      <Edit2 className="size-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-destructive hover:bg-destructive/10"
+                                      onClick={(e) => {
+                                        e.stopPropagation(); 
+                                        handleDelete(match.id);
+                                      }}
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
+                                  </>
+                                )}
                               </div>
                             </TableCell>
                           </motion.tr>

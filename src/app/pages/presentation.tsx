@@ -40,8 +40,7 @@ export default function PresentationPage() {
         className="text-xl sm:text-2xl mb-8 text-[#0799ba] text-center" 
         style={{ fontWeight: 500 }}
       >
-        Janos budos
-        {/*Fair games, better rallies.*/}
+        Fair games, better rallies.
       </motion.p>
 
       {/* Body copy */}
