@@ -28,7 +28,21 @@ const tableRowVariants: Variants = {
 
 export default function MasterPage() {
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
+  const [observations, setObservations] = useState<any[]>([]);
+
+  // Fetch observations if Admin
+  useEffect(() => {
+    if (!isAdmin) return;
+    const IP = import.meta.env.VITE_SERVER_IP || "localhost";
+    fetch(`http://${IP}:3000/graphql`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `query { observations { id reason createdAt user { email } } }` })
+    })
+    .then(res => res.json())
+    .then(json => setObservations(json.data?.observations || []));
+  }, [isAdmin]);
   // Destructured tournaments, activeTournamentId, and setActiveTournamentId for the filter
   const { matches, tournaments, activeTournamentId, setActiveTournamentId, loadMatches, hasNextPage, isLoadingMore, createMatch, updateMatch, deleteMatch } = useMatches();
   
@@ -104,6 +118,8 @@ export default function MasterPage() {
       deleteMatch(selectedMatch.id);
     }
   };
+
+  
 
   return (
     <div className="min-h-screen p-4 md:p-8">
@@ -181,7 +197,7 @@ export default function MasterPage() {
                   </Select>
 
                   <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                    {isAdmin && (
+                    {user && (
                       <Button
                         className="bg-[#006895] hover:bg-[#005177] text-white transition-all duration-300 w-full sm:w-auto"
                         onClick={handleAddMatch}
@@ -292,7 +308,7 @@ export default function MasterPage() {
                   </motion.tbody>
                 </Table>
               </div>
-
+              
               {/* INFINITE SCROLL LOADER / FOOTER */}
               <div 
                 ref={observerTarget} 
@@ -323,6 +339,51 @@ export default function MasterPage() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {/* ---  ADMIN SECURITY DASHBOARD --- */}
+        {isAdmin && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="mt-8">
+            <Card className="shadow-lg border-2 border-red-500/20 bg-red-50/30">
+              <CardHeader className="border-b border-red-100 bg-red-50/50">
+                <CardTitle className="text-xl text-red-700 flex items-center gap-2">
+                  Security Observation List
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-transparent hover:bg-transparent">
+                      <TableHead className="text-red-700 font-semibold">User Email</TableHead>
+                      <TableHead className="text-red-700 font-semibold">Detection Reason</TableHead>
+                      <TableHead className="text-red-700 font-semibold text-right">Flagged Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <tbody className="[&_tr:last-child]:border-0">
+                    {observations.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
+                          No suspicious activity detected. All systems clear.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      observations.map((obs) => (
+                        <TableRow key={obs.id} className="hover:bg-red-50 transition-colors">
+                          <TableCell className="font-medium">{obs.user.email}</TableCell>
+                          <TableCell className="text-red-600">{obs.reason}</TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                              {obs.createdAt 
+                              ? new Date(/^\d+$/.test(String(obs.createdAt)) ? Number(obs.createdAt) : obs.createdAt).toLocaleString()
+                              : "Just now"}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </tbody>
+                </Table>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         {/* CRUD Dialogs */}
         {/* We pass the active tournaments down to the dialog in case you want to show them inside the form! */}

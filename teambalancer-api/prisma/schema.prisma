@@ -56,6 +56,9 @@ model User {
   
   roleId   String
   role     Role   @relation(fields: [roleId], references: [id])
+
+  logs         LogEntry[]
+  observation  Observation?
 }
 
 model Role {
@@ -71,4 +74,23 @@ model Permission {
   name  String @unique // e.g., 'CREATE_MATCH', 'DELETE_MATCH', 'SIMULATE'
   
   roles Role[] @relation("RolePermissions")
+}
+
+model LogEntry {
+  id        String   @id @default(uuid())
+  userId    String
+  roleName  String   // Acts as the GROUP_ID (ADMIN/USER)
+  action    String   // ACTION_INFORMATION
+  createdAt DateTime @default(now()) // TIMESTAMP
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Observation {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  reason    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

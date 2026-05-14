@@ -4,6 +4,39 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { faker } from '@faker-js/faker';
 import { matchSchema } from '../validators/match.schema';
 import prisma from '../prisma';
+import { CommentModel } from '../models/comment.model';
+
+
+
+const nrOfAllowedActionsInMinute = 5;
+
+// --- AUDIT LOGGING & STEALTH MALVOLENCE DETECTION ---
+const logActionAndAnalyze = async (userId: string, action: string) => {
+  if (!userId) return;
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId }, include: { role: true } });
+    if (!user) return;
+
+    await prisma.logEntry.create({
+      data: { userId: user.id, roleName: user.role.name, action }
+    });
+
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+    const recentLogsCount = await prisma.logEntry.count({
+      where: { userId: user.id, createdAt: { gte: oneMinuteAgo } }
+    });
+
+    if (recentLogsCount > nrOfAllowedActionsInMinute) {
+      await prisma.observation.upsert({
+        where: { userId: user.id },
+        update: { reason: `Automated Malfeasance Detected: Action Spamming (>${nrOfAllowedActionsInMinute} actions/min)`, createdAt: new Date() },
+        create: { userId: user.id, reason: `Automated Malfeasance Detected: Action Spamming (>${nrOfAllowedActionsInMinute} actions/min)` }
+      });
+    }
+  } catch (err) {
+    console.error("Logging failed:", err);
+  }
+};
 
 // --- WEBSOCKET & SIMULATION ENGINE ---
 let wss: WebSocketServer | null = null;
@@ -30,13 +63,17 @@ export const typeDefs = gql`
   type Permission { id: ID!, name: String! }
   type Role { id: ID!, name: String!, permissions: [Permission!]! }
   type User { id: ID!, email: String!, role: Role! }
-  
+  type Comment { id: ID!, matchId: String!, userId: String!, userEmail: String!, text: String!, createdAt: String! }
+  type Observation { id: ID!, userId: String!, reason: String!, createdAt: String!, user: User! }
+
   type Query {
     tournaments: [Tournament!]!
     tournament(id: ID!): Tournament
     matches(tournamentId: ID, cursor: String, limit: Int = 5): MatchConnection!
     tournamentStats(tournamentId: ID!): TournamentStats!
     login(email: String!, password: String!): User
+    matchComments(matchId: ID!): [Comment!]!
+    observations: [Observation!]!
   }
 
   input PlayerInput { name: String!, skillValue: Int!, skillAdjustment: String! }
@@ -45,18 +82,24 @@ export const typeDefs = gql`
 
   type Mutation {
     createTournament(name: String!): Tournament!
-    createMatch(input: MatchInput!): Match!
-    updateMatch(id: ID!, input: MatchInput!): Match!
-    deleteMatch(id: ID!): Boolean!
     startSimulation(tournamentId: ID!): Boolean!
     stopSimulation: Boolean!
+    addComment(matchId: ID!, userId: ID!, userEmail: String!, text: String!): Comment!
+    deleteComment(commentId: ID!): Boolean!
+    createMatch(input: MatchInput!, userId: ID): Match!
+    updateMatch(id: ID!, input: MatchInput!, userId: ID): Match!
+    deleteMatch(id: ID!, userId: ID): Boolean!
   }
 `;
 
 export const resolvers = {
   Query: {
 
-    
+    matchComments: async (_: any, { matchId }: { matchId: string }) => {
+      const comments = await CommentModel.find({ matchId }).sort({ createdAt: 1 });
+      return comments.map(c => ({ ...c.toObject(), id: c._id.toString(), createdAt: c.createdAt.toISOString() }));
+    },
+
     tournaments: async () => {
       return await prisma.tournament.findMany();
     },
@@ -112,6 +155,10 @@ export const resolvers = {
       if (user.password !== password) throw new Error("Invalid password");
       
       return user; // Full stack persistency checked!
+    },
+
+    observations: async () => {
+      return await prisma.observation.findMany({ include: { user: true }, orderBy: { createdAt: 'desc' } });
     }
   },
 
@@ -137,13 +184,30 @@ export const resolvers = {
   },
   
   Mutation: {
+
+    addComment: async (_: any, { matchId, userId, userEmail, text }: any) => {
+      const newComment = await CommentModel.create({ matchId, userId, userEmail, text });
+      const commentObj = { ...newComment.toObject(), id: newComment._id.toString(), createdAt: newComment.createdAt.toISOString() };
+      
+      broadcast({ type: 'NEW_COMMENT', payload: commentObj });
+      return commentObj;
+    },
+    
+    deleteComment: async (_: any, { commentId }: { commentId: string }) => {
+      await CommentModel.findByIdAndDelete(commentId);
+      
+      broadcast({ type: 'COMMENT_DELETED', payload: commentId });
+      return true;
+    },
+
     createTournament: async (_: any, { name }: { name: string }) => {
       return await prisma.tournament.create({
         data: { name }
       });
     },
     
-    createMatch: async (_: any, { input }: { input: any }) => {
+    createMatch: async (_: any, { input, userId }: { input: any, userId?: string }) => {
+      if (userId) await logActionAndAnalyze(userId, `CREATED MATCH in Tournament: ${input.tournamentId}`);
       const validatedInput = matchSchema.parse(input); 
       
       console.log(validatedInput); // Debug log to verify input structure before DB operations
@@ -187,8 +251,8 @@ export const resolvers = {
       return newMatch;
     },
     
-    updateMatch: async (_: any, { id, input }: { id: string, input: any }) => {
-      const validatedInput = matchSchema.parse(input);
+    updateMatch: async (_: any, { id, input, userId }: { id: string, input: any, userId?: string }) => {
+      if (userId) await logActionAndAnalyze(userId, `UPDATED MATCH: ${id}`);      const validatedInput = matchSchema.parse(input);
       // Because relational updates are highly complex (updating nested players), 
       // the standard pattern here is to update the top-level match stats (scores/winner).
       const updatedMatch = await prisma.match.update({
@@ -203,10 +267,9 @@ export const resolvers = {
       return updatedMatch;
     },
     
-    deleteMatch: async (_: any, { id }: { id: string }) => {
+    deleteMatch: async (_: any, { id, userId }: { id: string, userId?: string }) => {
       try {
-        // Because of the 'onDelete: Cascade' in your schema, deleting the match 
-        // automatically deletes the connected teams and players!
+        if (userId) await logActionAndAnalyze(userId, `DELETED MATCH: ${id}`);
         await prisma.match.delete({ where: { id } });
         return true;
       } catch (e) {

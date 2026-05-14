@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { Match, Tournament } from "../data/mock-data";
+import { useAuth } from "./auth-context";
+
 
 interface MatchContextType {
   matches: Match[];
@@ -83,6 +85,8 @@ const sanitizeForGraphQL = (payload: any) => {
 };
 
 export function MatchProvider({ children }: { children: ReactNode }) {
+
+  const { user } = useAuth();
   const [matches, setMatches] = useState<Match[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [activeTournamentId, setActiveTournamentId] = useState("");
@@ -117,14 +121,17 @@ export function MatchProvider({ children }: { children: ReactNode }) {
         }
 
         if (action.type === 'CREATE') {
-          const data = await gqlFetch(`mutation CreateMatch($input: MatchInput!) { createMatch(input: $input) { id } }`, { input: action.payload });
+          // Add $userId to string and variables
+          const data = await gqlFetch(`mutation CreateMatch($input: MatchInput!, $userId: ID) { createMatch(input: $input, userId: $userId) { id } }`, { input: action.payload, userId: user?.id });
           if (action.matchId && data?.createMatch?.id) {
             idTranslationMap[action.matchId] = data.createMatch.id;
           }
         } else if (action.type === 'UPDATE') {
-          await gqlFetch(`mutation UpdateMatch($id: ID!, $input: MatchInput!) { updateMatch(id: $id, input: $input) { id } }`, { id: targetId, input: action.payload });
+          // Add $userId to string and variables
+          await gqlFetch(`mutation UpdateMatch($id: ID!, $input: MatchInput!, $userId: ID) { updateMatch(id: $id, input: $input, userId: $userId) { id } }`, { id: targetId, input: action.payload, userId: user?.id });
         } else if (action.type === 'DELETE') {
-          await gqlFetch(`mutation DeleteMatch($id: ID!) { deleteMatch(id: $id) }`, { id: targetId });
+          // Add $userId to string and variables
+          await gqlFetch(`mutation DeleteMatch($id: ID!, $userId: ID) { deleteMatch(id: $id, userId: $userId) }`, { id: targetId, userId: user?.id });
         }
       } catch (err: any) {
         if (err.message && err.message.includes('GRAPHQL_ERROR')) {
@@ -244,9 +251,9 @@ export function MatchProvider({ children }: { children: ReactNode }) {
 
     try {
       if (isOffline) throw new Error("Offline");
-      const mutation = `mutation CreateMatch($input: MatchInput!) { createMatch(input: $input) { id tournamentId date scoreA scoreB winner teamA { name totalSkill players { id name skillValue skillAdjustment } } teamB { name totalSkill players { id name skillValue skillAdjustment } } } }`;
-      const data = await gqlFetch(mutation, { input: cleanInput });
-      
+      const mutation = `mutation CreateMatch($input: MatchInput!, $userId: ID) { createMatch(input: $input, userId: $userId) { id tournamentId date scoreA scoreB winner teamA { name totalSkill players { id name skillValue skillAdjustment } } teamB { name totalSkill players { id name skillValue skillAdjustment } } } }`;
+      const data = await gqlFetch(mutation, { input: cleanInput, userId: user?.id });      
+
       if (rawPayload.tournamentId === activeTournamentId) {
         setMatches(prev => prev.map(m => m.id === tempMatch.id ? data.createMatch : m));
       }
@@ -268,8 +275,8 @@ export function MatchProvider({ children }: { children: ReactNode }) {
 
     try {
       if (isOffline) throw new Error("Offline");
-      const mutation = `mutation UpdateMatch($id: ID!, $input: MatchInput!) { updateMatch(id: $id, input: $input) { id tournamentId date scoreA scoreB winner teamA { name totalSkill players { id name skillValue skillAdjustment } } teamB { name totalSkill players { id name skillValue skillAdjustment } } } }`;
-      const data = await gqlFetch(mutation, { id, input: cleanInput });
+      const mutation = `mutation UpdateMatch($id: ID!, $input: MatchInput!, $userId: ID) { updateMatch(id: $id, input: $input, userId: $userId) { id tournamentId date scoreA scoreB winner teamA { name totalSkill players { id name skillValue skillAdjustment } } teamB { name totalSkill players { id name skillValue skillAdjustment } } } }`;
+      const data = await gqlFetch(mutation, { id, input: cleanInput, userId: user?.id });
       return data.updateMatch;
     } catch (error) {
       setIsOffline(true);
@@ -284,7 +291,7 @@ export function MatchProvider({ children }: { children: ReactNode }) {
 
     try {
       if (isOffline) throw new Error("Offline");
-      await gqlFetch(`mutation DeleteMatch($id: ID!) { deleteMatch(id: $id) }`, { id });
+          await gqlFetch(`mutation DeleteMatch($id: ID!, $userId: ID) { deleteMatch(id: $id, userId: $userId) }`, { id, userId: user?.id });
     } catch (error) {
       setIsOffline(true);
       addToSyncQueue({ type: 'DELETE', matchId: id });

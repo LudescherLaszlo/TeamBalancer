@@ -9,6 +9,7 @@ import { PrismaClient } from '@prisma/client';
 import { mockMatches } from './data/mock-data';
 import prisma from './prisma'
 import matchRoutes from './routes/match.routes';
+import mongoose from 'mongoose';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -121,6 +122,15 @@ async function seedDatabaseIfEmpty() {
 }
 
 async function startServer() {
+
+  const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/teambalancer';
+  try {
+    await mongoose.connect(MONGO_URI);
+    console.log(`Connected to MongoDB NoSQL database`);
+  } catch (err) {
+    console.error("MongoDB connection error:", err);
+  }
+
   await apolloServer.start();
 
   
